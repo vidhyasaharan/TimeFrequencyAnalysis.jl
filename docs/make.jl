@@ -8,7 +8,7 @@ makedocs(;
     authors="UNSW Sydney, Vidhyasaharan Sethu <v.sethu@unsw.edu.au>",
     sitename="TimeFrequencyAnalysis.jl",
     format=Documenter.HTML(;
-        canonical="https://unsw-edu-au.github.io/TimeFrequencyAnalysis.jl",
+        canonical="https://vidhyasaharan.github.io/TimeFrequencyAnalysis.jl",
         edit_link="main",
         assets=String[],
     ),
@@ -24,6 +24,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/unsw-edu-au/TimeFrequencyAnalysis.jl",
+    repo="github.com/vidhyasaharan/TimeFrequencyAnalysis.jl",
     devbranch="main",
 )

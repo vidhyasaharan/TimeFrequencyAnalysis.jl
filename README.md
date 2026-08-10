@@ -1,8 +1,8 @@
 # TimeFrequencyAnalysis
 
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://unsw-edu-au.github.io/TimeFrequencyAnalysis.jl/stable/)
-[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://unsw-edu-au.github.io/TimeFrequencyAnalysis.jl/dev/)
-[![Build Status](https://github.com/unsw-edu-au/TimeFrequencyAnalysis.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/unsw-edu-au/TimeFrequencyAnalysis.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://vidhyasaharan.github.io/TimeFrequencyAnalysis.jl/stable/)
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://vidhyasaharan.github.io/TimeFrequencyAnalysis.jl/dev/)
+[![Build Status](https://github.com/vidhyasaharan/TimeFrequencyAnalysis.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/vidhyasaharan/TimeFrequencyAnalysis.jl/actions/workflows/CI.yml?query=branch%3Amain)
 
 Time-frequency analysis of uniformly sampled signals in Julia:
 
@@ -18,7 +18,7 @@ All types are parametric in the floating point precision of the signal (`Float64
 `Float32`, ...) and every routine computes in that precision.
 
 The package originated as the time-frequency core of
-[SpeechBox.jl](https://github.com/unsw-edu-au/SpeechBox.jl), which now builds on it and
+[SpeechBox.jl](https://github.com/vidhyasaharan/SpeechBox.jl), which now builds on it and
 re-exports its API.
 
 ## Installation
@@ -26,7 +26,7 @@ re-exports its API.
 Not yet registered; install from the repository:
 
 ```julia
-pkg> add https://github.com/unsw-edu-au/TimeFrequencyAnalysis.jl.git
+pkg> add https://github.com/vidhyasaharan/TimeFrequencyAnalysis.jl.git
 ```
 
 ## Quickstart
@@ -42,7 +42,7 @@ frames = framed_signal(s, 0.02, 0.01)   # 20 ms frames every 10 ms
 tf     = amp2db(specgram(frames))       # STFT magnitude spectrogram in dB
 ```
 
-See the [documentation](https://unsw-edu-au.github.io/TimeFrequencyAnalysis.jl/dev/) for
+See the [documentation](https://vidhyasaharan.github.io/TimeFrequencyAnalysis.jl/dev/) for
 the full API.
 
 ## Citing
