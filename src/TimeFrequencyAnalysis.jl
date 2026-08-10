@@ -1,5 +1,62 @@
+"""
+    TimeFrequencyAnalysis
+
+Time-frequency analysis of uniformly sampled signals.
+
+The package provides container types for signals and their spectral representations
+([`waveform`](@ref), [`framed_signal`](@ref), [`spectrum`](@ref), [`timefreq`](@ref)),
+routines to split signals into frames, and spectral / spectro-temporal analyses
+([`dft`](@ref), [`magspec`](@ref), [`specgram`](@ref), [`periodogram`](@ref)), together
+with supporting utilities (window functions, frequency grids, resampling and synthetic
+signal generators).
+
+All types are parametric in the floating point precision `T<:AbstractFloat` of the signal,
+and every routine computes in that precision: a `Float32` signal produces `Float32` results
+throughout with no intermediate promotion to `Float64`.
+
+Most analyses come in two flavours, selected by dispatch: called normally they return a
+[`spectrum`](@ref)/[`timefreq`](@ref) container carrying the signal, frequency and time
+indices; called with [`comp()`](@ref comp) as the first argument they return the plain
+component array only.
+"""
 module TimeFrequencyAnalysis
 
-# Write your package code here.
+import DSP                                   #qualified access (DSP.Filters.resample)
+import DSP: amp2db, pow2db                   #imported (not just used) so methods for spectrum/timefreq can be added
+using DSP: hamming, hanning, nextfastfft, filt
+using FFTW: rfft, plan_rfft, rfftfreq
+using LinearAlgebra: dot
+using Random: MersenneTwister
 
-end
+#Signal containers and the component-output marker
+export waveform, framed_signal, spectrum, timefreq, comp
+
+#Framing
+export enframe, enframe!, view_frame, extract_frame, number_signal_frames, frame_energy
+
+#Window functions and spectral analyses
+export window, dft, magspec, specgram, periodogram
+
+#Element-wise transformations of spectrum/timefreq objects (amp2db and pow2db are DSP.jl
+#functions re-exported with added methods; log and log10 methods extend Base)
+export amp2db, pow2db
+
+#Frequency grids and frequency indexing
+export logfreq_array, linfreq_array, frqindex
+
+#Sampling helpers
+export time2nsamples, resample
+
+#Synthetic signal generators (test and demonstration signals)
+export white_noise, ar_process, impulse_train
+
+include("types.jl")             #waveform, framed_signal, spectrum, timefreq, comp
+include("sampling.jl")          #time2nsamples, resample
+include("framing.jl")           #enframe et al., frame_energy, padding helpers
+include("windows.jl")           #window
+include("frequency_grids.jl")   #logfreq_array, linfreq_array, frqindex, findclosest
+include("signal_generators.jl") #white_noise, ar_process, impulse_train
+include("spectral_analyses.jl") #dft, magspec, specgram, periodogram, cexp
+include("element_ops.jl")       #log/log10/amp2db/pow2db methods for spectrum and timefreq
+
+end # module

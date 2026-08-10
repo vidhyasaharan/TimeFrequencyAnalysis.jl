@@ -14,7 +14,13 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
+        "Data Structures" => "types.md",
+        "Framing" => "framing.md",
+        "Spectral Analyses" => "spectral.md",
+        "Utilities" => "utilities.md",
+        "Internals" => "internals.md",
     ],
+    checkdocs=:exports,
 )
 
 deploydocs(;
