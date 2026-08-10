@@ -51,5 +51,5 @@ Depth = 2
 The package is not yet registered. Install it directly from the repository:
 
 ```julia
-pkg> add https://github.com/unsw-edu-au/TimeFrequencyAnalysis.jl.git
+pkg> add https://github.com/vidhyasaharan/TimeFrequencyAnalysis.jl.git
 ```
