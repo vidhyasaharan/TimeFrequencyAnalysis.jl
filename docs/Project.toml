@@ -1,3 +1,6 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 TimeFrequencyAnalysis = "83a2fdbc-04e6-44d0-98bb-0a98ff942d04"
+
+[compat]
+Documenter = "1.17.0"
