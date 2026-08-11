@@ -1,8 +1,9 @@
 # TimeFrequencyAnalysis
 
+[![Build Status](https://github.com/vidhyasaharan/TimeFrequencyAnalysis.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/vidhyasaharan/TimeFrequencyAnalysis.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://vidhyasaharan.github.io/TimeFrequencyAnalysis.jl/stable/)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://vidhyasaharan.github.io/TimeFrequencyAnalysis.jl/dev/)
-[![Build Status](https://github.com/vidhyasaharan/TimeFrequencyAnalysis.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/vidhyasaharan/TimeFrequencyAnalysis.jl/actions/workflows/CI.yml?query=branch%3Amain)
+
 
 Time-frequency analysis of uniformly sampled signals in Julia:
 
