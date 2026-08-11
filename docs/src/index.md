@@ -13,7 +13,7 @@ now builds its speech analyses on top of it and re-exports this package's API.
 
 ## Design in one paragraph
 
-A signal lives in a [`waveform`](@ref) (samples plus sampling rate). A
+A signal lives in a [`signal`](@ref) container (samples plus sampling rate). A
 [`framed_signal`](@ref) adds a framing geometry without copying anything. Analyses return
 their results in [`spectrum`](@ref) (frequency axis) or [`timefreq`](@ref) (time and
 frequency axes) containers that keep the provenance of the result — or, when called with
@@ -29,7 +29,7 @@ using TimeFrequencyAnalysis
 fs = 8000.0
 x  = cos.(2π*440 .* (1:8000) ./ fs) .+ 0.1 .* white_noise(8000)
 
-s      = waveform(x, fs)               #signal container
+s      = signal(x, fs)               #signal container
 frames = framed_signal(s, 0.02, 0.01)  #20 ms frames every 10 ms
 
 spec = magspec(s)                      #spectrum object

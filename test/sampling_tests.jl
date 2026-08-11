@@ -20,9 +20,9 @@ end
     frq = 1000
     xx = cos.(2*pi*(frq/rfs)*n)
 
-    s = waveform(xx,rfs)
+    s = signal(xx,rfs)
     rs = resample(s,2*rfs)
-    @test rs isa waveform{Float64}
+    @test rs isa signal{Float64}
     @test abs(length(rs.x) - length(s.x)*2) <= 1
     @test rs.fs == s.fs*2
 

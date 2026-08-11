@@ -30,10 +30,10 @@ end
     @test llabels == string.(round.(lg[lpos], digits = 1))
 end
 
-@testset "waveform recipe" begin
-    #A waveform must plot as a single line series of the samples against time in seconds
+@testset "signal recipe" begin
+    #A signal must plot as a single line series of the samples against time in seconds
     #(t = (0:n-1)/fs), with the time axis labelled
-    s = waveform(cos.(2pi*440.0 .* (1:800) ./ fs), fs)
+    s = signal(cos.(2pi*440.0 .* (1:800) ./ fs), fs)
     rec = RecipesBase.apply_recipe(Dict{Symbol,Any}(), s)
     @test length(rec) == 1
     t, x = rec[1].args
@@ -46,7 +46,7 @@ end
 @testset "spectrum recipe" begin
     #A spectrum must plot as a single line series of its components, with x ticks
     #generated from the frequency grid (8 by default, overridable via nticks)
-    spec = magspec(signal)
+    spec = magspec(sig)
     rec = RecipesBase.apply_recipe(Dict{Symbol,Any}(), spec)
     @test length(rec) == 1
     @test rec[1].args == (spec.components,)
@@ -61,7 +61,7 @@ end
     #A timefreq must plot as a single heatmap series of its component matrix drawn in
     #index space, with tick labels carrying the true time (x) and frequency (y)
     #coordinates
-    tf = specgram(framed_signal(signal, 0.02, 0.01))
+    tf = specgram(framed_signal(sig, 0.02, 0.01))
     rec = RecipesBase.apply_recipe(Dict{Symbol,Any}(), tf)
     @test length(rec) == 1
     @test rec[1].args == (tf.components,)

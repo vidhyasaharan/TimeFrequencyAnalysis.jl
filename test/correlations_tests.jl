@@ -43,7 +43,7 @@ end
     #On a constant (all-ones) signal every product is 1, so acf reduces to the number of
     #overlapping samples: win_size - k for lag k — an exact hand-computable expectation
     afs = 8000.0
-    s = waveform(ones(Float64, 800), afs)
+    s = signal(ones(Float64, 800), afs)
     win_size = 100
     @test acf(s, 1, 0; win_size) == win_size
     @test acf(s, 1, 10; win_size) == win_size - 10
@@ -63,12 +63,12 @@ end
     #period later is identical (nacf = 1), and half a period later is negated (nacf = -1)
     afs = 8000.0
     period = 40 #a 200 Hz tone at 8 kHz
-    s = waveform(cos.(2pi/period .* (0:3999)), afs)
+    s = signal(cos.(2pi/period .* (0:3999)), afs)
     win_size = 4period
     @test nacf(s, 1, period; win_size) ≈ 1
     @test nacf(s, 1, period ÷ 2; win_size) ≈ -1
     #The norm scaling (Cauchy-Schwarz) bounds the values to [-1, 1] for any signal
-    sr = waveform(randn(Float64, 2000), afs)
+    sr = signal(randn(Float64, 2000), afs)
     vals = nacf(sr, 1, collect(1:50); win_size = 200)
     @test all(abs.(vals) .<= 1)
     #A positive nconst inflates the denominator, damping the value towards zero

@@ -26,10 +26,10 @@ end
 
 
 """
-    magspec(signal [, <keyword arguments>])
+    magspec(s [, <keyword arguments>])
     magspec(x, fs = 2π [, <keyword arguments>])
 
-Compute the DFT magnitude spectrum of the [`waveform`](@ref) `signal` (or of the signal in
+Compute the DFT magnitude spectrum of the [`signal`](@ref) `s` (or of the signal in
 array `x` with sampling rate `fs`). Returns a [`spectrum`](@ref) object.
 
     magspec(comp(), x, fs [, <keyword arguments>])
@@ -45,11 +45,11 @@ Return only the magnitude components of the DFT of `x`.
 - `ndft` : Number of DFT points [Default is the length of the signal array]
 - `wtype` : Window type to use [Default is "hanning"], see [`window`](@ref)
 """
-magspec(signal::waveform;ndft::Int = length(signal.x), wtype::String="hanning") = magspec(signal.x, signal.fs; ndft, wtype)
+magspec(s::signal;ndft::Int = length(s.x), wtype::String="hanning") = magspec(s.x, s.fs; ndft, wtype)
 
 function magspec(x::AbstractVector{<:AbstractFloat},fs::Real=2π; ndft::Int = length(x), wtype::String="hanning")
     mspec,frqs = magspec(comp(), x, fs; ndft, wtype)
-    return spectrum(waveform(x,fs), mspec, frqs, "DFT Magnitude Spectrum")
+    return spectrum(signal(x,fs), mspec, frqs, "DFT Magnitude Spectrum")
 end
 
 function magspec(::comp, x::AbstractVector{<:AbstractFloat},fs::Real; ndft::Int = length(x), wtype::String="hanning")
@@ -179,8 +179,8 @@ With the [`comp()`](@ref comp) argument the components are returned as a plain
 """
 function periodogram(x::AbstractVector{<:AbstractFloat},fs::Number,frqs::AbstractVector{<:Number};wtype::String="hanning")
     components = periodogram(comp(), x,fs,frqs;wtype)
-    signal = waveform(x,fs)
-    return spectrum(signal,components,frqs,"Periodogram")
+    s = signal(x,fs)
+    return spectrum(s,components,frqs,"Periodogram")
 end
 
 function periodogram(x::AbstractVector{<:AbstractFloat},fs::Number;wtype::String="hanning",fmin::Number=10,fmax::Number=fs/2)

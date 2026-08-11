@@ -48,8 +48,8 @@ end
 end
 
 
-#Plot recipe for plotting a time domain waveform
-@recipe function f(sig::waveform)
+#Plot recipe for plotting a time domain signal
+@recipe function f(sig::signal)
     x = sig.x
     fs = sig.fs
     t = (0:length(x)-1)/fs

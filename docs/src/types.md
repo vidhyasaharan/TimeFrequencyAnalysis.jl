@@ -7,8 +7,8 @@ CurrentModule = TimeFrequencyAnalysis
 Analyses in this package take either a signal or frames of a signal as input. Two structs
 serve this purpose:
 
-- [`waveform`](@ref) — signal samples together with the sampling rate
-- [`framed_signal`](@ref) — a waveform plus the geometry for splitting it into frames
+- [`signal`](@ref) — signal samples together with the sampling rate
+- [`framed_signal`](@ref) — a signal plus the geometry for splitting it into frames
 
 Spectral analyses store their output in one of two container structs, which keep the
 provenance of the result (the analysed signal, the frequency and time axes, and a title):
@@ -19,10 +19,10 @@ provenance of the result (the analysed signal, the frequency and time axes, and 
 Every struct is parametric in `T<:AbstractFloat`, the precision of the signal; constructors
 convert all numeric fields to that precision.
 
-## `waveform`
+## `signal`
 
 ```@docs
-waveform
+signal
 ```
 
 ## `framed_signal`

@@ -1,5 +1,5 @@
 #Correlation sequences of discrete-time signals, and short-time correlation functions
-#evaluated directly on a waveform (the building blocks of correlation-based pitch
+#evaluated directly on a signal (the building blocks of correlation-based pitch
 #estimators and of autocorrelation-method AR modelling).
 
 """
@@ -68,22 +68,22 @@ end
     acf(sig, t, lags; win_dur)
 
 Compute the autocorrelation function of the input signal `sig`, provided as a
-[`waveform`](@ref) object, at sample `i` (or at time `t` in seconds) at one or more lag
+[`signal`](@ref) object, at sample `i` (or at time `t` in seconds) at one or more lag
 index/indices `k` (or at time lags `lags` in seconds) given a window size of `win_size`
 samples (or a window duration `win_dur` in seconds).
 """
-acf(s::waveform, i::Int, k::Int; win_size::Int) = dot(s.x[i:i+win_size-k-1], s.x[i+k:i+win_size-1])
+acf(s::signal, i::Int, k::Int; win_size::Int) = dot(s.x[i:i+win_size-k-1], s.x[i+k:i+win_size-1])
 
-function acf(s::waveform, t::Real, lag::Real; win_dur::Real)
+function acf(s::signal, t::Real, lag::Real; win_dur::Real)
     i = time2nsamples(t,s.fs)
     k = time2nsamples(lag,s.fs)
     win_size = time2nsamples(win_dur,s.fs)
     return acf(s,i,k;win_size)
 end
 
-acf(s::waveform, i::Int, k::AbstractVector{Int}; win_size::Int) = map(x->acf(s,i,x;win_size),k)
+acf(s::signal, i::Int, k::AbstractVector{Int}; win_size::Int) = map(x->acf(s,i,x;win_size),k)
 
-acf(s::waveform, t::Real, lags::AbstractVector{<:Real}; win_dur::Real) = map(x->acf(s,t,x;win_dur),lags)
+acf(s::signal, t::Real, lags::AbstractVector{<:Real}; win_dur::Real) = map(x->acf(s,t,x;win_dur),lags)
 
 
 
@@ -93,7 +93,7 @@ acf(s::waveform, t::Real, lags::AbstractVector{<:Real}; win_dur::Real) = map(x->
     nacf(sig; min_lag, max_lag, win_size, win_shift, nconst = 0)
 
 Compute the normalised cross correlation function (with a delayed version of itself) of
-the input signal `sig`, provided as a [`waveform`](@ref) object, at sample `i` (or at time
+the input signal `sig`, provided as a [`signal`](@ref) object, at sample `i` (or at time
 `t` in seconds) at one or more lag index/indices `k` (or at time lags `lags` in seconds)
 given a window size of `win_size` samples (or a window duration `win_dur` in seconds).
 Both windows are mean-subtracted and the product is scaled by their norms, so values lie
@@ -104,7 +104,7 @@ The keyword-only form evaluates the function at every lag in `min_lag:max_lag` f
 successive windows spaced `win_shift` samples apart, returning a matrix with one column
 per window position and one row per lag.
 """
-function nacf(s::waveform, i::Int, k::Int; win_size::Int, nconst::Real = 0)
+function nacf(s::signal, i::Int, k::Int; win_size::Int, nconst::Real = 0)
     s1 = s.x[i:i+win_size-1]
     s2 = s.x[i+k:i+k+win_size-1]
     mean_s = sum(s1)/length(s1)
@@ -116,19 +116,19 @@ function nacf(s::waveform, i::Int, k::Int; win_size::Int, nconst::Real = 0)
     return ccf/(sqrt(nconst + (e1*e2)))
 end
 
-function nacf(s::waveform, t::Real, lag::Real; win_dur::Real, nconst::Real = 0.0)
+function nacf(s::signal, t::Real, lag::Real; win_dur::Real, nconst::Real = 0.0)
     i = time2nsamples(t, s.fs)
     k = time2nsamples(lag, s.fs)
     win_size = time2nsamples(win_dur, s.fs)
     return nacf(s,i,k;win_size,nconst)
 end
 
-nacf(s::waveform, i::Int, k::AbstractVector{Int}; win_size::Int, nconst::Real = 0.0) = map(x->nacf(s,i,x;win_size,nconst),k)
+nacf(s::signal, i::Int, k::AbstractVector{Int}; win_size::Int, nconst::Real = 0.0) = map(x->nacf(s,i,x;win_size,nconst),k)
 
-nacf(s::waveform, t::Real, lags::AbstractVector{<:Real}; win_dur::Real, nconst::Real = 0.0) = map(x->nacf(s,t,x;win_dur,nconst),lags)
+nacf(s::signal, t::Real, lags::AbstractVector{<:Real}; win_dur::Real, nconst::Real = 0.0) = map(x->nacf(s,t,x;win_dur,nconst),lags)
 
 
-function nacf(s::waveform{T}; min_lag::Int, max_lag::Int, win_size::Int, win_shift::Int, nconst::Real = 0.0) where {T<:AbstractFloat}
+function nacf(s::signal{T}; min_lag::Int, max_lag::Int, win_size::Int, win_shift::Int, nconst::Real = 0.0) where {T<:AbstractFloat}
     lags = min_lag:max_lag
     nlags = length(lags)
     nframes = number_signal_frames(s, win_size + max_lag, win_shift)

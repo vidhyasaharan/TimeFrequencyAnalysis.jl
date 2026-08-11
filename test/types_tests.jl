@@ -1,30 +1,30 @@
-#Construction and field integrity of the container types (waveform, framed_signal,
+#Construction and field integrity of the container types (signal, framed_signal,
 #spectrum, timefreq): inputs are stored/converted as documented, defaults are applied,
 #and derived quantities (frame counts, frame centre times) are computed correctly.
 
-@testset "waveform" begin
+@testset "signal" begin
     #Multichannel (matrix) input is not supported as such: the constructor must keep only
     #the first channel and warn, storing samples as a vector and fs in the signal precision
     xm = rand(Float64,3,10000)
-    sig = @test_logs (:warn, r"first channel") waveform(xm,1000) #multichannel input takes the first channel with a warning
-    @test typeof(sig.x) == Vector{Float64}
-    @test length(sig.x) == 10000
-    @test sig.fs == 1000.0
-    @test typeof(sig.fs) == Float64
+    s = @test_logs (:warn, r"first channel") signal(xm,1000) #multichannel input takes the first channel with a warning
+    @test typeof(s.x) == Vector{Float64}
+    @test length(s.x) == 10000
+    @test s.fs == 1000.0
+    @test typeof(s.fs) == Float64
 
     #A vector that is already of the right element type must be stored without copying
     xv = rand(Float64,100)
-    sig = waveform(xv,50)
-    @test sig isa waveform{Float64}
-    @test sig.x === xv #vector input of the right type is stored without copying
+    s = signal(xv,50)
+    @test s isa signal{Float64}
+    @test s.x === xv #vector input of the right type is stored without copying
 end
 
 
 @testset "framed_signal" begin
-    #The array+fs and waveform constructors must produce identical framing geometry
+    #The array+fs and signal constructors must produce identical framing geometry
     #(default frame duration and shift), with positive integer geometry fields
     frames = framed_signal(x,fs) #from a plain array
-    frames_alt = framed_signal(signal) #from the waveform object
+    frames_alt = framed_signal(sig) #from the signal object
     @test frames == frames_alt
     @test frames isa framed_signal{Float64}
     @test typeof(frames.signal.x) <: Vector{Float64}
@@ -51,8 +51,8 @@ end
     xs = rand(Float64,220)
     c = rand(Complex{Float64},111)
     f = convert.(Float64,collect(1:length(c)))
-    sp = spectrum(waveform(xs,220),c,f)
-    @test sp.signal isa waveform{Float64}
+    sp = spectrum(signal(xs,220),c,f)
+    @test sp.signal isa signal{Float64}
     @test typeof(sp.components) == Vector{Complex{Float64}}
     @test typeof(sp.frqs) == Vector{Float64}
     @test typeof(sp.title) <: AbstractString
@@ -61,13 +61,13 @@ end
 
 
 @testset "timefreq" begin
-    #Direct construction from a waveform stores all fields verbatim and records that no
+    #Direct construction from a signal stores all fields verbatim and records that no
     #framing was involved (frames === nothing)
-    sw = waveform(rand(Float64,1000),1000)
+    sw = signal(rand(Float64,1000),1000)
     comps = rand(Float64,5,4)
     frqs = collect(1.0:5.0)
     t = collect(0.1:0.1:0.4)
-    tf = timefreq(sw, comps, frqs, t, "test") #construct directly from a waveform (no frames)
+    tf = timefreq(sw, comps, frqs, t, "test") #construct directly from a signal (no frames)
     @test tf.signal == sw
     @test tf.frames === nothing
     @test tf.components == comps

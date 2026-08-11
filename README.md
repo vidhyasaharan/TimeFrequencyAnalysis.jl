@@ -6,7 +6,7 @@
 
 Time-frequency analysis of uniformly sampled signals in Julia:
 
-- **Containers** — `waveform` (signal + sampling rate), `framed_signal` (framing geometry),
+- **Containers** — `signal` (samples + sampling rate), `framed_signal` (framing geometry),
   `spectrum` and `timefreq` (analysis results carrying their frequency/time axes)
 - **Framing** — `enframe`, `view_frame`, `extract_frame`, `frame_energy`
 - **Spectral analyses** — `dft`, `magspec`, `specgram` (STFT magnitude), `periodogram` on
@@ -37,7 +37,7 @@ using TimeFrequencyAnalysis
 fs = 8000.0
 x  = cos.(2π*440 .* (1:8000) ./ fs) .+ 0.1 .* white_noise(8000)
 
-s      = waveform(x, fs)
+s      = signal(x, fs)
 frames = framed_signal(s, 0.02, 0.01)   # 20 ms frames every 10 ms
 tf     = amp2db(specgram(frames))       # STFT magnitude spectrogram in dB
 ```

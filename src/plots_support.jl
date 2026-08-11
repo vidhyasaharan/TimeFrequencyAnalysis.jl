@@ -1,5 +1,5 @@
 #Plotting support that is ordinary code. The Plots-ecosystem recipes for
-#waveform/spectrum/timefreq live in the package extension
+#signal/spectrum/timefreq live in the package extension
 #ext/TimeFrequencyAnalysisRecipesBaseExt.jl and activate when RecipesBase is loaded
 #(in practice, when Plots is).
 

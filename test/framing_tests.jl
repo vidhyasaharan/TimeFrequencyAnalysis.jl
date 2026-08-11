@@ -1,5 +1,5 @@
 #Framing: splitting signals into (overlapping) frames. Verifies frame extraction against
-#hand-computed slices, agreement between the sample-count/duration/waveform call forms,
+#hand-computed slices, agreement between the sample-count/duration/signal call forms,
 #frame counting, per-frame energy, and the padding helpers used for trailing frames.
 
 @testset "enframe" begin
@@ -13,11 +13,11 @@
         @test y[:,i] == xs[(i-1)*5 .+ (1:10)] #column i is the i-th frame
     end
 
-    #Duration-based and waveform forms give the same frames (0.1 s / 0.05 s at 100 Hz is
+    #Duration-based and signal forms give the same frames (0.1 s / 0.05 s at 100 Hz is
     #the same 10-sample frame and 5-sample shift)
     y2 = enframe(xs, 100.0, 0.1, 0.05)
     @test y2 == y
-    y3 = enframe(waveform(xs,100.0), 0.1, 0.05)
+    y3 = enframe(signal(xs,100.0), 0.1, 0.05)
     @test y3 == y
 
     #enframe! derives the frame shift from the preallocated matrix size
@@ -51,15 +51,15 @@ end
 
 
 @testset "number_signal_frames" begin
-    #All call forms (array or waveform, sample counts or durations) must agree on the
+    #All call forms (array or signal, sample counts or durations) must agree on the
     #number of frames fully contained in the signal: 19 for 100 samples with frame 10 /
     #shift 5, and a single frame when the frame spans the whole signal
     xs = zeros(Float64, 100)
     @test number_signal_frames(xs, 10, 5) == 19
     @test number_signal_frames(xs, 100, 1) == 1
     @test number_signal_frames(xs, 100.0, 0.1, 0.05) == 19
-    @test number_signal_frames(waveform(xs,100.0), 10, 5) == 19
-    @test number_signal_frames(waveform(xs,100.0), 0.1, 0.05) == 19
+    @test number_signal_frames(signal(xs,100.0), 10, 5) == 19
+    @test number_signal_frames(signal(xs,100.0), 0.1, 0.05) == 19
 end
 
 

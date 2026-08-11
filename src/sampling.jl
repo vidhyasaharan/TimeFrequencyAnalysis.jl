@@ -10,13 +10,13 @@ time2nsamples(dur::Real, fs::Real) = Int(round(dur*fs))
 
 
 """
-    resample(s::waveform, fs_new)
+    resample(s::signal, fs_new)
 
 Resample the signal `s` to the new sampling rate `fs_new` and return the result as a new
-[`waveform`](@ref). Wraps the polyphase `resample` from
+[`signal`](@ref). Wraps the polyphase `resample` from
 [`DSP.jl`](https://docs.juliadsp.org/stable/contents/).
 """
-function resample(signal::waveform, fs_new::Number)
-    rx = DSP.Filters.resample(signal.x, fs_new/signal.fs)
-    return waveform(rx,fs_new)
+function resample(s::signal, fs_new::Number)
+    rx = DSP.Filters.resample(s.x, fs_new/s.fs)
+    return signal(rx,fs_new)
 end

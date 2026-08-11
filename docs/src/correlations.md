@@ -5,7 +5,7 @@ CurrentModule = TimeFrequencyAnalysis
 # Correlations
 
 Autocorrelation and cross-correlation of discrete-time sequences, plus short-time
-correlation functions evaluated directly on a [`waveform`](@ref).
+correlation functions evaluated directly on a [`signal`](@ref).
 
 ## Cross-correlation sequences
 

@@ -52,13 +52,13 @@ function enframe(x::AbstractVector{<:AbstractFloat}, fs::Real, frame_dur::Real, 
 end
 
 """
-    enframe(signal::waveform, frame_dur, frame_shift_dur)
+    enframe(s::signal, frame_dur, frame_shift_dur)
 
 Generate a matrix with each column storing one frame of duration `frame_dur` seconds from
-the [`waveform`](@ref) `signal`, with consecutive frames separated by `frame_shift_dur`
+the [`signal`](@ref) `s`, with consecutive frames separated by `frame_shift_dur`
 seconds.
 """
-enframe(s::waveform, frame_dur::Real, frame_shift_dur::Real) = enframe(s.x, s.fs, frame_dur, frame_shift_dur)
+enframe(s::signal, frame_dur::Real, frame_shift_dur::Real) = enframe(s.x, s.fs, frame_dur, frame_shift_dur)
 
 
 """
@@ -98,16 +98,16 @@ extract_frame(x::framed_signal,i::Int) = collect(view_frame(x, i))
 """
     number_signal_frames(x, frame_size, frame_shift)
     number_signal_frames(x, fs, frame_dur, frame_shift_dur)
-    number_signal_frames(s::waveform, frame_size, frame_shift)
-    number_signal_frames(s::waveform, frame_dur, frame_shift_dur)
+    number_signal_frames(s::signal, frame_size, frame_shift)
+    number_signal_frames(s::signal, frame_dur, frame_shift_dur)
 
 Number of frames that lie entirely within the signal (i.e. without zero padding or
-extension) for the array `x` or [`waveform`](@ref) `s`, given `frame_size` and `frame_shift`
+extension) for the array `x` or [`signal`](@ref) `s`, given `frame_size` and `frame_shift`
 in samples, or `frame_dur` and `frame_shift_dur` in seconds.
 """
 number_signal_frames(x::AbstractVector{<:AbstractFloat}, frame_size::Int, frame_shift::Int) = 1+ Int(floor((length(x)-frame_size)/frame_shift))
 
-number_signal_frames(s::waveform, frame_size::Int, frame_shift::Int) = number_signal_frames(s.x, frame_size, frame_shift)
+number_signal_frames(s::signal, frame_size::Int, frame_shift::Int) = number_signal_frames(s.x, frame_size, frame_shift)
 
 function number_signal_frames(x::AbstractVector{<:AbstractFloat}, fs::Real, frame_dur::Real, frame_shift_dur::Real)
     frame_size = time2nsamples(frame_dur, fs)
@@ -115,7 +115,7 @@ function number_signal_frames(x::AbstractVector{<:AbstractFloat}, fs::Real, fram
     return number_signal_frames(x, frame_size, frame_shift)
 end
 
-function number_signal_frames(s::waveform, frame_dur::Real, frame_shift_dur::Real)
+function number_signal_frames(s::signal, frame_dur::Real, frame_shift_dur::Real)
     frame_size = time2nsamples(frame_dur,s.fs)
     frame_shift = time2nsamples(frame_shift_dur,s.fs)
     return number_signal_frames(s, frame_size, frame_shift)

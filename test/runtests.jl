@@ -1,5 +1,5 @@
-#One test file per source file. setup.jl provides the shared fixtures (the fs/x/signal
-#test signal) and seeds the RNG so that the stochastic tests are deterministic.
+#One test file per source file. setup.jl provides the shared fixtures (the fs/x/sig test
+#signal) and seeds the RNG so that the stochastic tests are deterministic.
 include("setup.jl")
 
 @testset verbose = true "TimeFrequencyAnalysis" begin

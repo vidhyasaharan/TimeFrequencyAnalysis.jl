@@ -4,7 +4,7 @@
 Time-frequency analysis of uniformly sampled signals.
 
 The package provides container types for signals and their spectral representations
-([`waveform`](@ref), [`framed_signal`](@ref), [`spectrum`](@ref), [`timefreq`](@ref)),
+([`signal`](@ref), [`framed_signal`](@ref), [`spectrum`](@ref), [`timefreq`](@ref)),
 routines to split signals into frames, and spectral / spectro-temporal analyses
 ([`dft`](@ref), [`magspec`](@ref), [`specgram`](@ref), [`periodogram`](@ref)), together
 with supporting utilities (window functions, frequency grids, resampling and synthetic
@@ -33,7 +33,7 @@ using LinearAlgebra: dot
 using Random: MersenneTwister
 
 #Signal containers and the component-output marker
-export waveform, framed_signal, spectrum, timefreq, comp
+export signal, framed_signal, spectrum, timefreq, comp
 
 #Framing
 export enframe, enframe!, view_frame, extract_frame, number_signal_frames, frame_energy
@@ -60,7 +60,7 @@ export time2nsamples, resample
 #Synthetic signal generators (test and demonstration signals)
 export white_noise, ar_process, impulse_train
 
-include("types.jl")             #waveform, framed_signal, spectrum, timefreq, comp
+include("types.jl")             #signal, framed_signal, spectrum, timefreq, comp
 include("sampling.jl")          #time2nsamples, resample
 include("framing.jl")           #enframe et al., frame_energy, padding helpers
 include("windows.jl")           #window

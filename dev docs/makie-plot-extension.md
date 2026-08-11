@@ -51,8 +51,8 @@ module TimeFrequencyAnalysisMakieExt
 using TimeFrequencyAnalysis
 using Makie
 
-#waveform → line plot of amplitude against time in seconds
-Makie.convert_arguments(P::Makie.PointBased, s::waveform) =
+#signal → line plot of amplitude against time in seconds
+Makie.convert_arguments(P::Makie.PointBased, s::signal) =
     Makie.convert_arguments(P, (0:length(s.x)-1) ./ s.fs, s.x)
 
 #spectrum → line plot of components against frequency in Hz
