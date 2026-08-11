@@ -8,7 +8,11 @@ The package provides container types for signals and their spectral representati
 routines to split signals into frames, and spectral / spectro-temporal analyses
 ([`dft`](@ref), [`magspec`](@ref), [`specgram`](@ref), [`periodogram`](@ref)), together
 with supporting utilities (window functions, frequency grids, resampling and synthetic
-signal generators).
+signal generators). Correlation analyses ([`xcorr`](@ref), [`acorr`](@ref), [`acf`](@ref),
+[`nacf`](@ref)) and digital filter responses on arbitrary frequency grids
+([`filter_coefs`](@ref), [`filter_resp`](@ref), [`filter_magresp`](@ref)) complete the
+toolkit. Plot recipes for the container types load automatically when the Plots ecosystem
+(RecipesBase) is present — a package extension, so none of it is a hard dependency.
 
 All types are parametric in the floating point precision `T<:AbstractFloat` of the signal,
 and every routine computes in that precision: a `Float32` signal produces `Float32` results
@@ -41,6 +45,12 @@ export window, dft, magspec, specgram, periodogram
 #functions re-exported with added methods; log and log10 methods extend Base)
 export amp2db, pow2db
 
+#Correlation sequences and short-time correlation functions
+export xcorr, xcorr!, acorr, acorr!, acf, nacf
+
+#Digital filter representation and frequency responses
+export filter_coefs, filter_resp, filter_magresp
+
 #Frequency grids and frequency indexing
 export logfreq_array, linfreq_array, frqindex
 
@@ -58,5 +68,8 @@ include("frequency_grids.jl")   #logfreq_array, linfreq_array, frqindex, findclo
 include("signal_generators.jl") #white_noise, ar_process, impulse_train
 include("spectral_analyses.jl") #dft, magspec, specgram, periodogram, cexp
 include("element_ops.jl")       #log/log10/amp2db/pow2db methods for spectrum and timefreq
+include("correlations.jl")      #xcorr(!), acorr(!), acf, nacf
+include("filters.jl")           #filter_coefs, filter_resp, filter_magresp and helpers
+include("plots_support.jl")     #generate_ticks (the recipes live in the RecipesBase extension)
 
 end # module

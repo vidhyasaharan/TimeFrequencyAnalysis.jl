@@ -1,7 +1,7 @@
 name = "TimeFrequencyAnalysis"
 uuid = "83a2fdbc-04e6-44d0-98bb-0a98ff942d04"
 authors = ["UNSW Sydney", "Vidhyasaharan Sethu <v.sethu@unsw.edu.au>"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 DSP = "717857b8-e6f2-59f4-9121-6e50c889abd2"
@@ -9,9 +9,16 @@ FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
+[weakdeps]
+RecipesBase = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
+
+[extensions]
+TimeFrequencyAnalysisRecipesBaseExt = "RecipesBase"
+
 [compat]
 DSP = "0.8"
 FFTW = "1.8"
 LinearAlgebra = "1"
 Random = "1"
+RecipesBase = "1"
 julia = "1.10"

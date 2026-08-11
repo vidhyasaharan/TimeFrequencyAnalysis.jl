@@ -42,7 +42,7 @@ S    = specgram(comp(), frames)        #the same STFT as a plain Matrix
 ## Contents
 
 ```@contents
-Pages = ["types.md", "framing.md", "spectral.md", "utilities.md", "internals.md"]
+Pages = ["types.md", "framing.md", "spectral.md", "correlations.md", "filters.md", "plotting.md", "utilities.md", "internals.md"]
 Depth = 2
 ```
 

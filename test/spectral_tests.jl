@@ -1,4 +1,11 @@
+#Spectral analyses on signals with known content: pure tones must produce their peaks in
+#the correct bins with the predicted magnitudes, the comp() forms must return the same
+#numbers as the container forms, and the frequency axes must map bins to Hz correctly.
+
 @testset "magspec" begin
+    #100 samples of a full-scale 25 Hz cosine at fs = 100 Hz with a rectangular window:
+    #the one-sided spectrum has 100/2 + 1 = 51 bins at 1 Hz per bin (DC in bin 1), the
+    #peak must land in bin 26 (= 25 Hz), and an on-bin unit cosine has magnitude N/2 = 50
     t = 0:0.01:0.99
     frq = 25
     mfs = 100.0
@@ -6,7 +13,7 @@
     spec = magspec(xx,mfs;wtype = "rect")
     mspec1, frqs1 = magspec(comp(), xx, mfs; wtype = "rect")
     mspec = spec.components
-    @test mspec1 == mspec
+    @test mspec1 == mspec #comp() form returns the same numbers as the container form
     @test frqs1 == spec.frqs
     mmag,mfrq = findmax(mspec)
     @test length(mspec) == 51
@@ -20,6 +27,9 @@
 end
 
 @testset "cexp" begin
+    #cexp(f, fs, N) must be the unit-norm complex exponential probe e^(-i2πfn/fs)/√N:
+    #after undoing the 1/√N scaling, the real part is cos and the imaginary part -sin at
+    #every sample, for on-bin and off-bin frequencies alike
     cfs = 8000
     N = 16000
     cs(fr,i) = cos(2π*(fr/cfs)*i)
@@ -38,11 +48,13 @@ end
 end
 
 @testset "cexp_proj_matrix" begin
+    #The projection matrix must stack one cexp probe vector per requested frequency as
+    #its rows (frequencies × samples), so periodogram is a single matrix-vector product
     cfs = 16000
     frqs = [10, 50, 100, 500, 1000, 5000]
     N = 1600
     proj = TimeFrequencyAnalysis.cexp_proj_matrix(frqs,cfs,N)
-    @test typeof(proj) <: Matrix{Complex{Float}}
+    @test typeof(proj) <: Matrix{Complex{Float64}}
     @test size(proj,1) == length(frqs)
     @test size(proj,2) == N
     for i = 1:length(frqs)
@@ -52,6 +64,8 @@ end
 end
 
 @testset "periodogram" begin
+    #A 1024 Hz tone analysed on an explicit frequency grid that includes 1024 Hz: the
+    #periodogram must peak exactly at that grid entry, with one value per grid frequency
     pfs = 8000
     n = 1:160
     frq = 1024
@@ -59,15 +73,17 @@ end
 
     tfrqs = [100, 500, 705, 1024, 1800, 2100, 3401, 3700]
     spec = periodogram(xx,pfs,tfrqs)
-    @test spec isa spectrum{Float,Float}
+    @test spec isa spectrum{Float64,Float64}
     pgram  = spec.components
     @test pgram == periodogram(comp(), xx,pfs,tfrqs)
     @test length(pgram) == length(tfrqs)
     mmag, mfindx = findmax(pgram)
     @test tfrqs[mfindx] == frq #the periodogram peaks at the tone frequency
 
+    #The fmin/fmax form evaluates on the default logarithmic grid over that range and
+    #must still peak at the tone (1024 = 2^10 lies exactly on the log2 grid from 8 Hz)
     spec = periodogram(xx,pfs;fmin=8,fmax=4000)
-    @test spec isa spectrum{Float,Float}
+    @test spec isa spectrum{Float64,Float64}
     pgram = spec.components
     @test pgram == periodogram(comp(),xx,pfs,fmin=8,fmax=4000)
     mmag, mfindx = findmax(pgram)
@@ -77,10 +93,13 @@ end
 end
 
 @testset "specgram" begin
+    #On the shared broadband fixture: the spectrogram must be a real positive matrix
+    #(floored at eps to keep log/dB well defined) with one frequency per row on an axis
+    #running from DC to (at most) Nyquist
     tf = specgram(x, fs;frame_dur = 0.03,frame_shift_dur=0.01, wtype = "hamming")
     msp = tf.components
     @test msp == specgram(comp(), x, fs;frame_dur = 0.03,frame_shift_dur=0.01, wtype = "hamming")
-    @test typeof(msp) == Matrix{Float}
+    @test typeof(msp) == Matrix{Float64}
     @test size(msp,1) > 0
     @test size(msp,2) > 0
     @test length(tf.frqs) == size(msp,1) #one frequency index per spectrogram row
@@ -89,7 +108,9 @@ end
     @test maximum(isa.(msp,Complex))==false
     @test minimum(msp) >= eps()
 
-    #Two one-second tones back to back with one-second frames land in separate columns
+    #Two one-second tones back to back with one-second non-overlapping frames: each tone
+    #must dominate its own column, peaking in the bin of its frequency (1 Hz per bin,
+    #DC in row 1), and the frequency axis must map those rows back to Hz
     t = 0:0.01:0.99
     frq1 = 25
     frq2 = 30

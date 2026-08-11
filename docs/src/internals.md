@@ -33,3 +33,18 @@ findclosest
 cexp
 cexp_proj_matrix
 ```
+
+## Filter evaluation helpers
+
+Frequency conversion and pointwise transfer-function evaluation behind
+[`filter_resp`](@ref) and [`filter_magresp`](@ref).
+
+```@docs
+freq2θ
+freq2θ!
+freq2z
+freq2z!
+powers
+H
+Hmag
+```

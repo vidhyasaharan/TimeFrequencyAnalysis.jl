@@ -3,8 +3,6 @@ using Test
 using LinearAlgebra
 using Random
 
-const Float = Float64 #Concrete precision used by the test fixtures
-
 #Deterministic broadband test signal: two tones in noise, 1 second at 8 kHz
 Random.seed!(2026)
 const fs = 8000.0

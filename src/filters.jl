@@ -1,0 +1,165 @@
+#Digital filter representation and frequency responses evaluated on arbitrary frequency
+#grids (e.g. the magnitude response of an all-pole AR model over a chosen set of analysis
+#frequencies).
+
+"""
+    freq2θ(f, fs)
+
+Convert analogue frequency `f` in Hz (scalar or vector) to digital angular frequency
+``θ = 2πf/f_s`` in radians per sample, given sampling rate `fs`.
+"""
+freq2θ(f::Real, fs::Real) = 2pi*(f/fs)
+
+function freq2θ(f::AbstractVector{<:Real}, fs::Real)
+    θ = Vector{float(promote_type(eltype(f),typeof(fs)))}(undef,length(f))
+    freq2θ!(θ,f,fs)
+    return θ
+end
+
+"""
+    freq2θ!(θ, f, fs)
+
+In-place version of [`freq2θ`](@ref): fill `θ` with the digital angular frequencies of
+the analogue frequencies `f` in Hz, given sampling rate `fs`.
+"""
+function freq2θ!(θ::AbstractVector{<:Real}, f::AbstractVector{<:Real}, fs::Real)
+    k = 2pi/fs
+    for i ∈ eachindex(θ)
+        θ[i] = k*f[i]
+    end
+    return θ
+end
+
+"""
+    freq2z(f, fs)
+
+Map analogue frequency `f` in Hz (scalar or vector) to the corresponding point
+``z = e^{iθ}`` on the unit circle of the z-plane, given sampling rate `fs`.
+"""
+freq2z(f::Real,fs::Real) = exp(im*freq2θ(f,fs))
+
+function freq2z(f::AbstractVector{<:Real}, fs::Real)
+    z = Vector{Complex{float(promote_type(eltype(f),typeof(fs)))}}(undef,length(f))
+    freq2z!(z,f,fs)
+    return z
+end
+
+"""
+    freq2z!(z, f, fs)
+
+In-place version of [`freq2z`](@ref): fill `z` with the unit-circle points corresponding
+to the analogue frequencies `f` in Hz, given sampling rate `fs`.
+"""
+function freq2z!(z::AbstractVector{<:Complex}, f::AbstractVector{<:Real}, fs::Real)
+    for i ∈ eachindex(z)
+        z[i] = exp(im*freq2θ(f[i],fs))
+    end
+end
+
+"""
+    filter_coefs{T<:AbstractFloat}
+    filter_coefs(num, den)
+
+Coefficients of a rational digital filter: numerator `num` and denominator `den`, constant
+terms first. The convenience constructor accepts any real vectors and promotes both to a
+common floating point element type.
+"""
+struct filter_coefs{T<:AbstractFloat}
+    num::Vector{T}
+    den::Vector{T}
+end
+
+function filter_coefs(num::AbstractVector{<:Real}, den::AbstractVector{<:Real})
+    T = float(promote_type(eltype(num),eltype(den)))
+    return filter_coefs(convert(Vector{T},num), convert(Vector{T},den))
+end
+
+
+"""
+    powers(x, N)
+
+Return the vector `[1, x, x², …, xᴺ]` of the powers of `x` up to `N` (length `N+1`).
+"""
+function powers(x::Number, N::Int)
+    px = Vector{eltype(x)}(undef,N+1)
+    px[1] = one(eltype(px))
+    for i ∈ 1:N
+        px[i+1] = x^i
+    end
+    return px
+end
+
+
+"""
+    H(F, z)
+    H(F, f, fs)
+
+Evaluate the rational transfer function described by `F::filter_coefs` at the complex
+point `z`, or at analogue frequency `f` in Hz given sampling rate `fs` (i.e. at
+``z = e^{i2πf/f_s}``). The numerator and denominator polynomials are evaluated in
+*positive* powers of `z`; on the unit circle this is the complex conjugate of the usual
+negative-power (``z^{-1}``) convention, so magnitudes agree with that convention and
+phases are negated.
+"""
+function H(F::filter_coefs, z::Complex{<:Real})
+    npz = powers(z, length(F.num)-1)
+    dpz = powers(z, length(F.den)-1)
+    Hz = dot(F.num,npz)/dot(F.den,dpz)
+    return Hz
+end
+
+H(F::filter_coefs, f::Real, fs::Real) = H(F,freq2z(f,fs))
+
+
+"""
+    filter_resp(F, f, fs)
+
+Complex frequency response of the filter described by `F::filter_coefs` at each analogue
+frequency of the vector `f` in Hz, given sampling rate `fs`. See [`H`](@ref) for the
+evaluation convention; use [`filter_magresp`](@ref) when only magnitudes are needed.
+"""
+function filter_resp(F::filter_coefs, f::AbstractVector{<:Real}, fs::Real)
+    z = freq2z(f,fs)
+    Hz = map(x->H(F,x), z)
+    return Hz
+end
+
+
+"""
+    Hmag(F, θ)
+    Hmag(F, f, fs)
+
+Magnitude of the transfer function described by `F::filter_coefs` at digital angular
+frequency `θ` in radians per sample, or at analogue frequency `f` in Hz given sampling
+rate `fs`. Equivalent to `abs(H(F, exp(im*θ)))` but avoids allocating the power vectors.
+"""
+function Hmag(F::filter_coefs{T}, θ::Real) where {T<:AbstractFloat}
+    iθ = im*θ
+    CT = Complex{float(promote_type(T,typeof(θ)))}
+    Nm = convert(CT,F.num[1])
+    Dm = convert(CT,F.den[1])
+    Nord = length(F.num) - 1
+    Dord = length(F.den) - 1
+    if(Nord>0)
+        for i ∈ 1:Nord
+            Nm += F.num[i+1]*exp(i*iθ)
+        end
+    end
+    if(Dord>0)
+        for i ∈ 1:Dord
+            Dm += F.den[i+1]*exp(i*iθ)
+        end
+    end
+    return abs(Nm)/abs(Dm)
+end
+
+Hmag(F::filter_coefs, f::Real, fs::Real) = Hmag(F, freq2θ(f,fs))
+
+
+"""
+    filter_magresp(F, f, fs)
+
+Magnitude response of the filter described by `F::filter_coefs` at each analogue frequency
+of the vector `f` in Hz, given sampling rate `fs`.
+"""
+filter_magresp(F::filter_coefs, f::AbstractVector{<:Real}, fs::Real) = map(x->Hmag(F,x,fs),f)

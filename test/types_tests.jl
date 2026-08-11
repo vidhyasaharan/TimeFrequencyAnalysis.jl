@@ -1,24 +1,33 @@
+#Construction and field integrity of the container types (waveform, framed_signal,
+#spectrum, timefreq): inputs are stored/converted as documented, defaults are applied,
+#and derived quantities (frame counts, frame centre times) are computed correctly.
+
 @testset "waveform" begin
-    xm = rand(Float,3,10000)
+    #Multichannel (matrix) input is not supported as such: the constructor must keep only
+    #the first channel and warn, storing samples as a vector and fs in the signal precision
+    xm = rand(Float64,3,10000)
     sig = @test_logs (:warn, r"first channel") waveform(xm,1000) #multichannel input takes the first channel with a warning
-    @test typeof(sig.x) == Vector{Float}
+    @test typeof(sig.x) == Vector{Float64}
     @test length(sig.x) == 10000
     @test sig.fs == 1000.0
-    @test typeof(sig.fs) == Float
+    @test typeof(sig.fs) == Float64
 
-    xv = rand(Float,100)
+    #A vector that is already of the right element type must be stored without copying
+    xv = rand(Float64,100)
     sig = waveform(xv,50)
-    @test sig isa waveform{Float}
+    @test sig isa waveform{Float64}
     @test sig.x === xv #vector input of the right type is stored without copying
 end
 
 
 @testset "framed_signal" begin
+    #The array+fs and waveform constructors must produce identical framing geometry
+    #(default frame duration and shift), with positive integer geometry fields
     frames = framed_signal(x,fs) #from a plain array
     frames_alt = framed_signal(signal) #from the waveform object
     @test frames == frames_alt
-    @test frames isa framed_signal{Float}
-    @test typeof(frames.signal.x) <: Vector{Float}
+    @test frames isa framed_signal{Float64}
+    @test typeof(frames.signal.x) <: Vector{Float64}
     @test length(frames.signal.x) > 0
     @test typeof(frames.frame_length) <: Int
     @test typeof(frames.frame_shift) <: Int
@@ -28,27 +37,34 @@ end
     @test frames.frame_shift > 0
     @test frames.num_signal_frames > 0
     @test frames.num_frames > 0
+    #num_frames includes trailing partial (padded) frames, so it can only exceed the
+    #number of frames fully contained in the signal, which itself cannot be fewer than
+    #the sliding-window count (length - frame_length)/frame_shift
     @test frames.num_frames >= frames.num_signal_frames
     @test frames.num_signal_frames >= (length(frames.signal.x)-frames.frame_length)/frames.frame_shift
 end
 
 
 @testset "spectrum" begin
-    xs = rand(Float,220)
-    c = rand(Complex{Float},111)
-    f = convert.(Float,collect(1:length(c)))
+    #The spectrum container must store the analysed signal, complex components and the
+    #frequency grid (converted to the signal precision), with an empty default title
+    xs = rand(Float64,220)
+    c = rand(Complex{Float64},111)
+    f = convert.(Float64,collect(1:length(c)))
     sp = spectrum(waveform(xs,220),c,f)
-    @test sp.signal isa waveform{Float}
-    @test typeof(sp.components) == Vector{Complex{Float}}
-    @test typeof(sp.frqs) == Vector{Float}
+    @test sp.signal isa waveform{Float64}
+    @test typeof(sp.components) == Vector{Complex{Float64}}
+    @test typeof(sp.frqs) == Vector{Float64}
     @test typeof(sp.title) <: AbstractString
     @test sp.title == "" #default title
 end
 
 
 @testset "timefreq" begin
-    sw = waveform(rand(Float,1000),1000)
-    comps = rand(Float,5,4)
+    #Direct construction from a waveform stores all fields verbatim and records that no
+    #framing was involved (frames === nothing)
+    sw = waveform(rand(Float64,1000),1000)
+    comps = rand(Float64,5,4)
     frqs = collect(1.0:5.0)
     t = collect(0.1:0.1:0.4)
     tf = timefreq(sw, comps, frqs, t, "test") #construct directly from a waveform (no frames)
@@ -59,9 +75,10 @@ end
     @test tf.time == t
     @test tf.title == "test"
 
-    #Frame-based construction computes frame centre times
+    #Frame-based construction computes frame centre times: one time per full frame,
+    #starting at half a frame length and advancing by the frame shift (in seconds)
     frames = framed_signal(x,fs,0.02,0.01)
-    comps2 = rand(Float, 7, frames.num_signal_frames)
+    comps2 = rand(Float64, 7, frames.num_signal_frames)
     tf2 = timefreq(frames, comps2, collect(1.0:7.0))
     @test tf2.frames === frames
     @test length(tf2.time) == frames.num_signal_frames
