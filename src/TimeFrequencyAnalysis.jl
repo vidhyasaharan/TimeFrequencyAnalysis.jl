@@ -51,8 +51,11 @@ export xcorr, xcorr!, acorr, acorr!, acf, nacf
 #Digital filter representation and frequency responses
 export filter_coefs, filter_resp, filter_magresp
 
-#Frequency grids and frequency indexing
-export logfreq_array, linfreq_array, frqindex
+#Frequency grids and frequency indexing (erb and friends are the auditory ERB scale)
+export logfreq_array, linfreq_array, frqindex, erb, freq2erb, erb2freq, erbfreq_array
+
+#Gammatone filter design and inspection (Hohmann 2002)
+export gammatone_filter, impulse_response
 
 #Sampling helpers
 export time2nsamples, resample
@@ -70,6 +73,7 @@ include("spectral_analyses.jl") #dft, magspec, specgram, periodogram, cexp
 include("element_ops.jl")       #log/log10/amp2db/pow2db methods for spectrum and timefreq
 include("correlations.jl")      #xcorr(!), acorr(!), acf, nacf
 include("filters.jl")           #filter_coefs, filter_resp, filter_magresp and helpers
+include("gammatone.jl")         #gammatone_filter, impulse_response and design helpers
 include("plots_support.jl")     #generate_ticks (the recipes live in the RecipesBase extension)
 
 end # module

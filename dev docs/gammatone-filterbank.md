@@ -447,7 +447,7 @@ verification** before moving on. Test files follow the one-file-per-source-file 
 (`test/gammatone_tests.jl`, plus additions to `filters_tests.jl`, `grids_tests.jl` and
 `float32_tests.jl`), registered in `runtests.jl`.
 
-The verification plots accumulate in a dev-only script, **`dev docs/gammatone-verification.jl`**
+The verification plots accumulate in a dev-only script, **`scripts/gammatone-verification.jl`**
 (one clearly labelled section per step, using Plots.jl; not part of the package or test suite).
 It keeps every visual check reproducible as the code evolves, and by step 8 it is the ready-made
 source of figures and examples for the docs page.
@@ -554,7 +554,7 @@ glue).
   pyfilterbank, embedded in the test files as literals with a comment recording exactly how
   they were produced. No test-time dependency on MATLAB/Python, mirroring how the existing
   tests hardcode known responses.
-- **Visual verification per step** via `dev docs/gammatone-verification.jl` (§4) — every step
+- **Visual verification per step** via `scripts/gammatone-verification.jl` (§4) — every step
   ends with something to look at, and the script doubles as the docs-figure source.
 - **Property tests** on the shared fixture signal: linearity, precision preservation
   (`float32_tests.jl` additions), envelope positivity, channel selectivity.

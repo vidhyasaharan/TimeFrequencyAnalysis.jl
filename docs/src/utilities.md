@@ -15,11 +15,17 @@ window
 ## Frequency grids and indexing
 
 Frequency grids define the analysis frequencies for [`periodogram`](@ref) and can be used
-to build custom analyses; [`frqindex`](@ref) maps frequencies back to grid indices.
+to build custom analyses; [`frqindex`](@ref) maps frequencies back to grid indices. The
+ERB family implements the auditory (equivalent rectangular bandwidth) frequency scale
+behind the [gammatone filterbank](gammatone.md).
 
 ```@docs
 logfreq_array
 linfreq_array
+erb
+freq2erb
+erb2freq
+erbfreq_array
 frqindex
 ```
 

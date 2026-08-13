@@ -48,3 +48,11 @@ powers
 H
 Hmag
 ```
+
+## Gammatone design helpers
+
+```@docs
+check_gammatone_args
+a_gamma
+default_ir_length
+```

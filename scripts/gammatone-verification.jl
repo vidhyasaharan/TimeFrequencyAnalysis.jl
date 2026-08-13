@@ -1,7 +1,7 @@
 #Visual verification companion to the gammatone filterbank plan
 #(dev docs/gammatone-filterbank.md §4): one section per implementation step, each producing
 #the plots that step's "Verify visually" item calls for. Run with Plots installed (Plots is
-#not a package dependency): julia> include("dev docs/gammatone-verification.jl")
+#not a package dependency): julia> include("scripts/gammatone-verification.jl")
 #Not part of the package or its test suite; by the final step this doubles as the source of
 #figures for the docs page.
 
@@ -35,3 +35,58 @@ step1 = let
     plot(pmag, pph; layout = (2,1), size = (800, 550))
 end
 display(step1)
+
+## ---------------------------------------------------------------------------------------
+## Step 2 — gammatone_filter design: impulse response, magnitude and phase responses
+## ---------------------------------------------------------------------------------------
+#The 4th-order gammatone at 1 kHz (fs = 16 kHz): the impulse response is a tone burst under
+#a gamma-shaped envelope peaking at (γ-1)/(2πb) ≈ 3.5 ms; the magnitude response peaks at
+#fc with gain exactly 2 (+6.02 dB); the phase falls through the passband.
+step2a = let
+    fs = 16000.0
+    gf = gammatone_filter(fs, 1000.0)
+    t, h = impulse_response(gf)
+    p1 = plot(1000 .* t, [real.(h) abs.(h)];
+              label = ["real part" "envelope"], xlabel = "Time (ms)",
+              title = "Impulse response, fc = 1 kHz, order 4, bw = ERB(fc) ≈ 132.6 Hz")
+    f = collect(0.0:2.0:8000.0)
+    resp = filter_resp(gf, f)
+    p2 = plot(f, amp2db.(abs.(resp)); label = "", ylabel = "Magnitude (dB)", ylims = (-80, 10))
+    vline!(p2, [1000.0]; ls = :dash, label = "fc (peak +6.02 dB)")
+    p3 = plot(f, angle.(resp); label = "", xlabel = "Frequency (Hz)", ylabel = "Phase (rad)")
+    plot(p1, p2, p3; layout = (3,1), size = (820, 850))
+end
+display(step2a)
+
+#Design variants: Route A (ERB-matching, the default) vs Route B (edges at -3 dB) for the
+#same nominal bandwidth; the bw_scale family; explicit bw overriding the ERB default.
+step2b = let
+    fs = 16000.0
+    f = collect(200.0:2.0:2600.0)
+    B = erb(1000.0)
+
+    gA = gammatone_filter(fs, 1000.0)
+    gB = gammatone_filter(fs, 1000.0, B, 3.0)
+    p1 = plot(f, amp2db.(filter_magresp(gA, f)); label = "Route A: ERB(fc) as filter ERB",
+              ylabel = "Magnitude (dB)", ylims = (-60, 10),
+              title = "Same bandwidth value, two conventions")
+    plot!(p1, f, amp2db.(filter_magresp(gB, f)); label = "Route B: ERB(fc) as -3 dB width")
+    scatter!(p1, [1000 - B/2, 1000 + B/2], fill(amp2db(2) - 3, 2);
+             label = "fc ± bw/2 at -3 dB (Route B)", marker = :circle)
+
+    p2 = plot(; ylabel = "Magnitude (dB)", ylims = (-60, 10), title = "bw_scale ∈ {0.5, 1, 2}")
+    for s in (0.5, 1.0, 2.0)
+        g = gammatone_filter(fs, 1000.0; bw_scale = s)
+        plot!(p2, f, amp2db.(filter_magresp(g, f)); label = "bw_scale = $s")
+    end
+
+    p3 = plot(; xlabel = "Frequency (Hz)", ylabel = "Magnitude (dB)", ylims = (-60, 10),
+              title = "Explicit bw ∈ {80, ERB(fc) ≈ 132.6, 300} Hz")
+    for bwv in (80.0, round(erb(1000.0); digits = 1), 300.0)
+        g = gammatone_filter(fs, 1000.0; bw = bwv)
+        plot!(p3, f, amp2db.(filter_magresp(g, f)); label = "bw = $bwv Hz")
+    end
+
+    plot(p1, p2, p3; layout = (3,1), size = (820, 850))
+end
+display(step2b)

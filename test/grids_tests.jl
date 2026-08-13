@@ -25,6 +25,40 @@ end
     end
 end
 
+@testset "ERB scale" begin
+    #Glasberg & Moore constants in the Hohmann (2002) form: ERB(0) = 24.7 Hz and
+    #ERB(1 kHz) ≈ 132.63 Hz; the ERB-rate scale is 0 at 0 Hz and inverts exactly
+    @test erb(0) == 24.7
+    @test erb(1000.0) ≈ 132.6331 atol = 1e-3
+    @test freq2erb(0) == 0
+    @test erb2freq(0) == 0
+    for f in (50.0, 250.0, 1000.0, 4000.0)
+        @test erb2freq(freq2erb(f)) ≈ f
+    end
+end
+
+@testset "erbfreq_array" begin
+    #The default grid is the ~30-channel gfb demo grid (70 Hz to 6.7 kHz around 1 kHz at
+    #one filter per ERB): sorted, inside [fmin, fmax], uniformly spaced on the ERB-rate
+    #scale, with the anchor present exactly
+    g = erbfreq_array()
+    @test length(g) == 30
+    @test issorted(g)
+    @test g[1] ≥ 70 && g[end] ≤ 6700
+    @test 1000.0 ∈ g #pinned exactly, not just approximately
+    E = freq2erb.(g)
+    @test all(isapprox.(diff(E), 1.0; atol = 1e-8))
+
+    #Doubling the density halves the ERB spacing; the anchor is pinned for any base_frq
+    g2 = erbfreq_array(;filters_per_erb = 2)
+    @test all(isapprox.(diff(freq2erb.(g2)), 0.5; atol = 1e-8))
+    @test 432.1 ∈ erbfreq_array(;fmin = 100, fmax = 2000, base_frq = 432.1)
+
+    #The anchor must lie inside [fmin, fmax] and the density must be positive
+    @test_throws ErrorException erbfreq_array(;fmin = 100, fmax = 2000, base_frq = 50)
+    @test_throws ErrorException erbfreq_array(;filters_per_erb = 0)
+end
+
 @testset "findclosest" begin
     #findclosest must return the index of the grid value nearest to the query; a query
     #that lies exactly on the grid returns its own position

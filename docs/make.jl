@@ -17,6 +17,7 @@ makedocs(;
         "Data Structures" => "types.md",
         "Framing" => "framing.md",
         "Spectral Analyses" => "spectral.md",
+        "Gammatone Filterbank" => "gammatone.md",
         "Correlations" => "correlations.md",
         "Filter Responses" => "filters.md",
         "Plotting" => "plotting.md",
