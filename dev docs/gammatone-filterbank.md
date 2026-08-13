@@ -514,9 +514,12 @@ section 4).
 
 **Step 5 — delay-related inspection helpers** (`group_delay`, `envelope_delay`,
 `summed_resp`).
-*Tests*: numeric `group_delay(gf, f)` at `fc` ≈ closed form `γλ/(1−λ)`; `envelope_delay` ≈
-`(γ−1)/(2πb)` within one sample; `filter_resp` agrees with the FFT of a long measured impulse
-response on the FFT grid; magresp peak location = `fc`.
+*Tests*: numeric `group_delay(gf, f)` at `fc` ≈ closed form `γλ/(1−λ)`; `envelope_delay`
+equals the exact discrete peak `⌈(γλ−1)/(1−λ)⌉` and sits within a few samples of the
+analogue `(γ−1)/(2πb)` — the discrete envelope peaks ≈ (γ−1)/2 samples *earlier* than the
+analogue formula, so a one-sample tolerance against it is unachievable (found at
+implementation time); `filter_resp` agrees with the DTFT of a fully decayed impulse
+response; magresp peak location = `fc` (already covered in step 2).
 *Verify visually*: group-delay curves for low/mid/high channels on one axis (the 1/b spread of
 §2.9 visible); per-channel envelope-peak times vs the `(γ−1)/(2πb)` curve; summed (
 uncompensated) bank response magnitude (script section 5).

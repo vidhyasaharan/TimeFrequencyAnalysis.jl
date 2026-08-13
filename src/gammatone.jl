@@ -412,3 +412,72 @@ gammatone_cochleagram(::comp, s::signal; kwargs...) = gammatone_cochleagram(comp
 gammatone_cochleagram(s::signal; kwargs...) = gammatone_cochleagram(s,gammatone_filterbank(s.fs;kwargs...))
 gammatone_cochleagram(::comp, x::AbstractVector{<:AbstractFloat}, fs::Real; kwargs...) = gammatone_cochleagram(comp(),signal(x,fs);kwargs...)
 gammatone_cochleagram(x::AbstractVector{<:AbstractFloat}, fs::Real; kwargs...) = gammatone_cochleagram(signal(x,fs);kwargs...)
+
+
+## Delay and summed-response inspection
+
+"""
+    group_delay(gf::gammatone_filter, f)
+    group_delay(gf::gammatone_filter)
+
+Group delay of the gammatone filter in **samples** (divide by `fs` for seconds). The
+one-argument form returns the closed form at the centre frequency,
+``τ_g(f_c) = order⋅λ/(1-λ)`` samples (≈ the analogue ``order/(2πb)`` seconds). The grid
+form computes ``τ(f) = -dφ/dθ`` numerically from the unwrapped phase response at each
+frequency of `f` in Hz, by central differences — the grid must be dense enough that the
+phase moves by less than π between neighbouring points.
+
+Note that the group delay at `fc` is *not* the delay of the envelope maximum: the
+asymmetric gammatone envelope peaks earlier (at ≈ ``(order-1)/(2πb)`` seconds against the
+group delay's ``order/(2πb)``) — see [`envelope_delay`](@ref).
+"""
+function group_delay(gf::gammatone_filter)
+    λ = convert(Float64,abs(gf.coef))
+    return gf.order*λ/(1-λ)
+end
+
+function group_delay(gf::gammatone_filter, f::AbstractVector{<:Real})
+    length(f) ≥ 2 || error("group_delay needs at least two grid frequencies to differentiate the phase")
+    φ = DSP.unwrap(angle.(filter_resp(gf,f)))
+    θ = freq2θ(f,gf.fs)
+    n = length(f)
+    τ = Vector{Float64}(undef,n)
+    τ[1] = -(φ[2]-φ[1])/(θ[2]-θ[1])
+    τ[n] = -(φ[n]-φ[n-1])/(θ[n]-θ[n-1])
+    for i ∈ 2:n-1
+        τ[i] = -(φ[i+1]-φ[i-1])/(θ[i+1]-θ[i-1])
+    end
+    return τ
+end
+
+"""
+    envelope_delay(gf::gammatone_filter)
+
+Sample index (0-based, so also the delay in samples) of the maximum of the
+impulse-response envelope of `gf`, measured from the closed-form impulse response. This is
+the per-channel delay that the alignment stage of the Hohmann framework compensates. The
+measured value equals the exact discrete peak position ``⌈(order⋅λ-1)/(1-λ)⌉``, which
+sits a sample or two *before* the analogue prediction ``(order-1)/(2πb)`` seconds — the
+discrete binomial envelope peaks slightly earlier than its continuous-time counterpart.
+"""
+function envelope_delay(gf::gammatone_filter)
+    _,h = impulse_response(gf)
+    return argmax(abs.(h)) - 1
+end
+
+"""
+    summed_resp(fb::gammatone_filterbank, f)
+
+Complex sum of the channel frequency responses of the filterbank at each frequency of `f`
+in Hz: the transfer function of analysing with the bank and summing the raw channel
+outputs. Because the channels carry very different delays and phases, the uncompensated
+sum interferes and its magnitude ripples deeply — flattening it is the job of the
+per-channel delay/phase alignment and the mixer gains of the analysis–synthesis framework.
+"""
+function summed_resp(fb::gammatone_filterbank, f::AbstractVector{<:Real})
+    resp = filter_resp(fb.filters[1],f)
+    for i ∈ 2:length(fb.filters)
+        resp .+= filter_resp(fb.filters[i],f)
+    end
+    return resp
+end

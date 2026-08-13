@@ -175,3 +175,43 @@ step4 = let
     plot(p1, p2, p3, p4; layout = @layout([a; b; c d]), size = (950, 1000))
 end
 display(step4)
+
+## ---------------------------------------------------------------------------------------
+## Step 5 — delay helpers: group delay, envelope-peak delay, and the unaligned sum
+## ---------------------------------------------------------------------------------------
+#Gammatone channels are slow at the bottom of the bank and fast at the top (both delays
+#scale as 1/b). The group delay at fc and the envelope peak are different instants — the
+#envelope peaks earlier — and the per-channel spread is exactly why the raw summed bank
+#response is a mess until channels are delay- and phase-aligned (step 6).
+step5 = let
+    fs = 16000.0
+    fb = gammatone_filterbank(fs)
+
+    #Group-delay curves for a low, mid and high channel (dots: closed form γλ/(1-λ) at fc)
+    p1 = plot(; xlabel = "Frequency (Hz)", ylabel = "Group delay (ms)",
+              title = "Group delay of a low, mid and high channel")
+    for fc0 in (250.0, 1000.0, 4000.0)
+        gf = fb.filters[frqindex(fc0, fb.fcs)]
+        fgrid = collect(range(max(50.0, gf.fc - 2*gf.bw), gf.fc + 2*gf.bw; length = 400))
+        plot!(p1, fgrid, 1000 .* group_delay(gf, fgrid)./fs; label = "fc ≈ $(round(Int, gf.fc)) Hz")
+        scatter!(p1, [gf.fc], [1000*group_delay(gf)/fs]; label = "", marker = :circle, ms = 4)
+    end
+
+    #Envelope-peak delay across the bank, against the analogue (order-1)/(2πb) curve
+    tpk = [1000*envelope_delay(g)/fs for g in fb.filters]
+    tpk_analog = [1000*(g.order - 1)/(2π*g.b) for g in fb.filters]
+    p2 = plot(fb.fcs, tpk_analog; xscale = :log10, label = "(order-1)/(2πb) (analogue)",
+              xlabel = "Centre frequency (Hz)", ylabel = "Envelope peak (ms)",
+              title = "Envelope-peak delay across the bank")
+    scatter!(p2, fb.fcs, tpk; label = "measured argmax of |h|", ms = 3, msw = 0)
+
+    #The uncompensated summed response: deep interference ripple — what the delay/phase
+    #alignment (step 6) and the mixer (v2) exist to fix
+    fgrid = collect(50.0:2.0:7950.0)
+    p3 = plot(fgrid, amp2db.(abs.(summed_resp(fb, fgrid)));
+              label = "", xlabel = "Frequency (Hz)", ylabel = "Magnitude (dB)",
+              title = "Summed bank response without alignment")
+
+    plot(p1, p2, p3; layout = (3,1), size = (850, 900))
+end
+display(step5)

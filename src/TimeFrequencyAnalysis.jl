@@ -57,6 +57,7 @@ export logfreq_array, linfreq_array, frqindex, erb, freq2erb, erb2freq, erbfreq_
 #Gammatone filterbank analysis (Hohmann 2002)
 export gammatone_filter, impulse_response, gammatone_filt, gammatone_filt!
 export gammatone_filterbank, gammatone_analysis, gammatone_cochleagram
+export group_delay, envelope_delay, summed_resp
 
 #Sampling helpers
 export time2nsamples, resample

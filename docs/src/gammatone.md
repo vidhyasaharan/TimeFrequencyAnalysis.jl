@@ -34,6 +34,13 @@ channel — while [`gammatone_cochleagram`](@ref) returns the envelope form that
 directly with the existing recipes (`plot(amp2db(gammatone_cochleagram(s)))`). Both follow
 the package's [`comp()`](@ref comp) convention for bare-array output.
 
+Gammatone channels are slow at low frequencies and fast at high ones, and two delay
+notions matter when interpreting or aligning their outputs: the group delay at the centre
+frequency ([`group_delay`](@ref), ≈ `order/(2πb)`) and the slightly earlier peak of the
+impulse-response envelope ([`envelope_delay`](@ref), ≈ `(order-1)/(2πb)`), which is what
+alignment across channels targets. [`summed_resp`](@ref) shows the bank's summed
+frequency response — deeply rippled until the channels are delay- and phase-aligned.
+
 ```@docs
 gammatone_filter
 impulse_response
@@ -42,6 +49,9 @@ gammatone_filt!
 gammatone_filterbank
 gammatone_analysis
 gammatone_cochleagram
+group_delay
+envelope_delay
+summed_resp
 ```
 
 ## References

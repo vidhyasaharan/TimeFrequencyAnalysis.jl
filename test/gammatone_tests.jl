@@ -286,6 +286,56 @@ end
     @test_throws ErrorException gammatone_analysis(signal(randn(100), 44100.0), fb)
 end
 
+@testset "delay helpers and summed response" begin
+    afs = 16000.0
+    gf = gammatone_filter(afs, 1000.0)
+    γ = gf.order
+    λ = Float64(abs(gf.coef))
+
+    #Group delay at fc: the scalar form is the closed form γλ/(1-λ) samples; the numeric
+    #curve agrees with it on a dense grid; and both sit within a few percent of the
+    #analogue γ/(2πb) seconds (they differ at second order in b/fs)
+    τfc = group_delay(gf)
+    @test τfc ≈ γ*λ/(1 - λ)
+    f = collect(800.0:1.0:1200.0)
+    τ = group_delay(gf, f)
+    @test length(τ) == length(f)
+    @test τ[argmin(abs.(f .- 1000.0))] ≈ τfc rtol = 1e-3
+    @test isapprox(τfc/afs, γ/(2π*Float64(gf.b)); rtol = 0.05)
+    @test_throws ErrorException group_delay(gf, [1000.0])
+
+    #The envelope peak sits at the exact discrete position ⌈(γλ-1)/(1-λ)⌉, a couple of
+    #samples before the analogue prediction (γ-1)/(2πb) — the discrete binomial envelope
+    #peaks earlier than its continuous counterpart
+    for gfx in (gf, gammatone_filter(afs, 100.0), gammatone_filter(afs, 1000.0, 200.0, 3.0))
+        γx = gfx.order
+        λx = Float64(abs(gfx.coef))
+        nd = envelope_delay(gfx)
+        @test nd == ceil(Int, (γx*λx - 1)/(1 - λx))
+        @test abs(nd - (γx - 1)*afs/(2π*Float64(gfx.b))) ≤ 4
+    end
+
+    #filter_resp equals the DTFT of the (fully decayed) impulse response: an independent
+    #time-domain path to the same frequency response
+    _, h = impulse_response(gf; dur = 0.25)
+    for f0 in (250.0, 1000.0, 2000.0)
+        θ0 = 2π*f0/afs
+        Hdtft = sum(h[n+1]*cis(-θ0*n) for n ∈ 0:length(h)-1)
+        @test Hdtft ≈ filter_resp(gf, [f0])[1] rtol = 1e-6
+    end
+
+    #Summed bank response: the channel-wise sum, reducing to the single response for a
+    #one-channel bank, and far from flat without alignment (the step-6 motivation)
+    fb = gammatone_filterbank(afs)
+    fgrid = collect(100.0:5.0:7900.0)
+    sr = summed_resp(fb, fgrid)
+    @test sr ≈ sum(filter_resp(gfx, fgrid) for gfx in fb.filters)
+    fb1 = gammatone_filterbank(afs, [1000.0])
+    @test summed_resp(fb1, fgrid) ≈ filter_resp(fb1.filters[1], fgrid)
+    inband = abs.(sr[frqindex(300.0, fgrid):frqindex(5000.0, fgrid)])
+    @test maximum(inband)/minimum(inband) > 1.5
+end
+
 @testset "argument checking and precision" begin
     afs = 16000.0
     @test_throws ErrorException gammatone_filter(afs, 9000.0)  #fc above fs/2
