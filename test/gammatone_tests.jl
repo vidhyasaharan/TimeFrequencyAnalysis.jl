@@ -133,6 +133,63 @@ end
     @test length(h2) == 320
 end
 
+@testset "filtering kernel" begin
+    afs = 16000.0
+    gf = gammatone_filter(afs, 1000.0)
+
+    #A unit impulse through the kernel reproduces the exact binomial-form impulse response
+    #(the closed form of impulse_response), the strongest check the kernel can face
+    N = 400
+    e = zeros(N); e[1] = 1.0
+    y = gammatone_filt(gf, e)
+    @test y isa Vector{ComplexF64}
+    @test y[1] == gf.norm
+    t, h = impulse_response(gf; dur = N/afs)
+    @test y ≈ h rtol = 1e-10
+
+    #Linearity
+    x1 = randn(500); x2 = randn(500)
+    @test gammatone_filt(gf, 2.0.*x1 .- 3.0.*x2) ≈ 2.0.*gammatone_filt(gf, x1) .- 3.0.*gammatone_filt(gf, x2)
+
+    #Steady state: a unit tone at fc settles to envelope 1 (peak gain 2, halved because a
+    #real tone splits across ±fc); off centre the envelope is |H(f)|/2, cross-validating
+    #the kernel against the response machinery. Tolerance is loose: the filter's residual
+    #response at the mirror frequency ripples the envelope at the 1e-3 level
+    n = 0:7999
+    for (f0, expected) in ((1000.0, 1.0), (1500.0, filter_magresp(gf, [1500.0])[1]/2))
+        x = cos.(2π*f0.*n./afs)
+        env = abs.(gammatone_filt(gf, x))
+        @test all(isapprox.(env[6001:8000], expected; rtol = 5e-3))
+    end
+
+    #A non-default order runs through the general (stage-by-stage) path and must match its
+    #own closed form just as exactly
+    gf6 = gammatone_filter(afs, 1000.0; order = 6)
+    y6 = gammatone_filt(gf6, e)
+    _, h6 = impulse_response(gf6; dur = N/afs)
+    @test y6 ≈ h6 rtol = 1e-10
+
+    #The in-place form matches, requires matching lengths, and allocates nothing after
+    #warmup on both the order-4 and the general path
+    x = randn(1000)
+    for g in (gf, gf6)
+        yb = Vector{ComplexF64}(undef, 1000)
+        gammatone_filt!(yb, g, x)
+        @test yb ≈ gammatone_filt(g, x)
+        @test (@allocated gammatone_filt!(yb, g, x)) == 0
+    end
+    @test_throws ErrorException gammatone_filt!(Vector{ComplexF64}(undef, 5), gf, x)
+
+    #The signal's precision decides the computation: a Float32 signal gives ComplexF32
+    #output agreeing with the Float64 path, and a Float32-stored filter applied to a
+    #Float64 signal stays Float64
+    x32 = randn(Float32, 1000)
+    y32 = gammatone_filt(gf, x32)
+    @test y32 isa Vector{ComplexF32}
+    @test isapprox(y32, gammatone_filt(gf, convert(Vector{Float64}, x32)); rtol = 1e-4)
+    @test gammatone_filt(gammatone_filter(16000f0, 1000f0), randn(100)) isa Vector{ComplexF64}
+end
+
 @testset "argument checking and precision" begin
     afs = 16000.0
     @test_throws ErrorException gammatone_filter(afs, 9000.0)  #fc above fs/2

@@ -90,3 +90,50 @@ step2b = let
     plot(p1, p2, p3; layout = (3,1), size = (820, 850))
 end
 display(step2b)
+
+## ---------------------------------------------------------------------------------------
+## Step 3 — filtering kernel: recursion vs closed form, and steady-state behaviour
+## ---------------------------------------------------------------------------------------
+#Filtering a unit impulse with the recursive kernel must land on the closed-form impulse
+#response exactly (they are independent computations of the same thing); a tone at fc must
+#settle to envelope 1 (gain 2 halved across ±fc); and on a two-tone-in-noise signal the
+#channel envelopes must sit at their components' amplitudes.
+step3 = let
+    fs = 16000.0
+    gf = gammatone_filter(fs, 1000.0)
+
+    #Kernel impulse output vs closed form (markers subsampled so the overlay stays legible)
+    N = 400
+    e = zeros(N); e[1] = 1.0
+    y = gammatone_filt(gf, e)
+    t, h = impulse_response(gf; dur = N/fs)
+    maxerr = maximum(abs.(y .- h))
+    p1 = plot(1000 .* t, real.(h); label = "closed form (real part)",
+              title = "Kernel vs closed form: max |difference| = $(round(maxerr, sigdigits=3))")
+    scatter!(p1, 1000 .* t[1:8:end], real.(y[1:8:end]); label = "kernel output",
+             marker = :circle, ms = 2.5, msw = 0)
+    plot!(p1, 1000 .* t, abs.(h); label = "envelope", ls = :dash)
+
+    #Tone at fc: envelope settles to 1 after the ~group-delay transient
+    n = 0:Int(round(0.05*fs))-1
+    x = cos.(2π*1000.0.*n./fs)
+    env = abs.(gammatone_filt(gf, x))
+    p2 = plot(1000 .* n./fs, env; label = "envelope of filtered 1 kHz tone",
+              xlabel = "Time (ms)")
+    hline!(p2, [1.0]; ls = :dash, label = "unit amplitude")
+
+    #Two tones in noise (the test-suite fixture recipe, fs = 8 kHz): each channel's
+    #envelope hovers at its component's amplitude
+    fs8 = 8000.0
+    n8 = 0:Int(round(0.5*fs8))-1
+    x8 = cos.(2π*440.0.*n8./fs8) .+ 0.5.*cos.(2π*1000.0.*n8./fs8) .+ 0.3.*randn(length(n8))
+    e440 = abs.(gammatone_filt(gammatone_filter(fs8, 440.0), x8))
+    e1k = abs.(gammatone_filt(gammatone_filter(fs8, 1000.0), x8))
+    p3 = plot(1000 .* n8./fs8, [e440 e1k];
+              label = ["channel at 440 Hz" "channel at 1 kHz"],
+              xlabel = "Time (ms)", title = "Two tones (1.0 at 440 Hz, 0.5 at 1 kHz) in noise")
+    hline!(p3, [1.0, 0.5]; ls = :dash, label = "")
+
+    plot(p1, p2, p3; layout = (3,1), size = (820, 850))
+end
+display(step3)

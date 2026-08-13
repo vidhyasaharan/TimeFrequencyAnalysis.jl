@@ -193,3 +193,64 @@ function default_ir_length(gf::gammatone_filter)
     end
     return n+1
 end
+
+
+## Filtering kernel
+
+"""
+    gammatone_filt(gf::gammatone_filter, x)
+
+Filter the real signal array `x` with the gammatone filter `gf` and return the complex
+subband signal: `abs.` of the output is the band envelope and `real.` the
+bandpass-filtered signal (see [`gammatone_filter`](@ref) for why the gain-2 normalisation
+makes both carry the input band's amplitude). The cascade is applied as its `order`
+one-pole recursions ``w_j[n] = w_{j-1}[n] + ãw_j[n-1]``, `order` complex multiply–adds
+per sample.
+
+The computation runs in the signal's precision: the output element type is `Complex` of
+the element type of `x`, whatever precision the filter is stored at.
+"""
+function gammatone_filt(gf::gammatone_filter, x::AbstractVector{T}) where {T<:AbstractFloat}
+    y = Vector{Complex{T}}(undef,length(x))
+    return gammatone_filt!(y,gf,x)
+end
+
+"""
+    gammatone_filt!(y, gf, x)
+
+In-place version of [`gammatone_filt`](@ref): fill the complex vector `y` (same length as
+`x`) with the subband signal and return it. Allocation free.
+"""
+function gammatone_filt!(y::AbstractVector{Complex{T}}, gf::gammatone_filter, x::AbstractVector{<:Real}) where {T<:AbstractFloat}
+    length(y) == length(x) || error("Output and input must have the same length")
+    ã = convert(Complex{T},gf.coef)
+    k = convert(T,gf.norm)
+    if(gf.order == 4)
+        #Single pass with the four states in registers: the four recursions pipeline
+        #across samples, which a stage-by-stage sweep cannot do
+        w1 = w2 = w3 = w4 = zero(Complex{T})
+        @inbounds for n ∈ eachindex(x,y)
+            w1 = muladd(ã,w1,x[n])
+            w2 = muladd(ã,w2,w1)
+            w3 = muladd(ã,w3,w2)
+            w4 = muladd(ã,w4,w3)
+            y[n] = k*w4
+        end
+    else
+        #General order: apply the one-pole recursion order times over the signal in place
+        @inbounds for n ∈ eachindex(x,y)
+            y[n] = x[n]
+        end
+        for j ∈ 1:gf.order
+            w = zero(Complex{T})
+            @inbounds for n ∈ eachindex(y)
+                w = muladd(ã,w,y[n])
+                y[n] = w
+            end
+        end
+        @inbounds for n ∈ eachindex(y)
+            y[n] *= k
+        end
+    end
+    return y
+end

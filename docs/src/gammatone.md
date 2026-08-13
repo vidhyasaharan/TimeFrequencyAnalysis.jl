@@ -22,9 +22,15 @@ The impulse response is available in closed form through [`impulse_response`](@r
 response machinery applies: [`filter_resp`](@ref) and [`filter_magresp`](@ref) accept a
 `gammatone_filter` directly.
 
+Signals are filtered with [`gammatone_filt`](@ref) (or the in-place
+[`gammatone_filt!`](@ref)), which applies the cascade as `order` one-pole complex
+recursions per sample, computing in the signal's own precision.
+
 ```@docs
 gammatone_filter
 impulse_response
+gammatone_filt
+gammatone_filt!
 ```
 
 ## References
