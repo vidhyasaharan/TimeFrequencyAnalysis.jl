@@ -87,7 +87,7 @@ function check_gammatone_args(fs::Real, fc::Real, order::Int)
     (fs64 > 0) || error("Sampling rate must be positive")
     (0 < fc64 < fs64/2) || error("Centre frequency must lie in (0, fs/2)")
     (1 ≤ order ≤ 10) || error("Filter order must lie in 1:10")
-    (fc64 > 0.45*fs64) && @warn "Centre frequency is close to the Nyquist frequency; the gammatone design assumes fc ≪ fs/2 and the response skirt will wrap"
+    (fc64 > 0.45*fs64) && @warn "Centre frequency $(fc64) Hz is close to the Nyquist frequency; the gammatone design assumes fc ≪ fs/2 and the response skirt will wrap"
     return fs64,fc64
 end
 
@@ -254,3 +254,161 @@ function gammatone_filt!(y::AbstractVector{Complex{T}}, gf::gammatone_filter, x:
     end
     return y
 end
+
+
+## Filterbank
+
+"""
+    gammatone_filterbank{T<:AbstractFloat}
+    gammatone_filterbank(fs; fmin = 70, fmax = min(6700, 0.45fs), base_frq = 1000,
+                         filters_per_erb = 1, order = 4, bw = nothing, bw_scale = 1)
+    gammatone_filterbank(fs, fcs; order = 4, bw = nothing, bw_scale = 1)
+
+A bank of [`gammatone_filter`](@ref)s sharing the sampling rate `fs`. The centre
+frequencies come from [`erbfreq_array`](@ref) — uniformly spaced on the ERB-rate scale
+between `fmin` and `fmax` with a channel pinned exactly at `base_frq` (see
+[`erbfreq_array`](@ref) for the anchoring logic) — or are given explicitly as the vector
+`fcs`. The default `fmax` is the reference implementation's 6700 Hz, capped at `0.45fs`
+where the design assumptions end.
+
+Bandwidths follow the single-filter rules per channel: each defaults to its auditory
+bandwidth [`erb`](@ref)`(fc)`; `bw` overrides that with one explicit bandwidth for every
+channel (scalar — a constant-bandwidth bank) or one per channel (vector matching the
+number of channels); `bw_scale` multiplies whichever is in effect. Note that channel
+density (`filters_per_erb`) and bandwidth are independent: one packs more filters, the
+other widens each of them.
+
+# Fields
+- `fs::T` : sampling rate in Hz
+- `fcs::Vector{T}` : centre frequency of each channel in Hz
+- `filters::Vector{gammatone_filter{T}}` : the channel filters
+"""
+struct gammatone_filterbank{T<:AbstractFloat}
+    fs::T
+    fcs::Vector{T}
+    filters::Vector{gammatone_filter{T}}
+end
+
+function gammatone_filterbank(fs::Real, fcs::AbstractVector{<:Real}; order::Int = 4,
+        bw::Union{Nothing,Real,AbstractVector{<:Real}} = nothing, bw_scale::Real = 1)
+    isempty(fcs) && error("The filterbank needs at least one centre frequency")
+    if(bw isa AbstractVector)
+        length(bw) == length(fcs) || error("bw must be a scalar or have one bandwidth per centre frequency")
+    end
+    T = float(promote_type(typeof(fs),eltype(fcs)))
+    fsT = convert(T,fs)
+    fcsT = convert(Vector{T},fcs)
+    filters = Vector{gammatone_filter{T}}(undef,length(fcsT))
+    for i ∈ eachindex(fcsT)
+        bwi = (bw isa AbstractVector) ? bw[i] : bw
+        filters[i] = gammatone_filter(fsT,fcsT[i]; bw = bwi, bw_scale, order)
+    end
+    return gammatone_filterbank{T}(fsT,fcsT,filters)
+end
+
+function gammatone_filterbank(fs::Real; fmin::Real = 70, fmax::Real = min(6700,0.45*fs),
+        base_frq::Real = 1000, filters_per_erb::Real = 1, order::Int = 4,
+        bw::Union{Nothing,Real,AbstractVector{<:Real}} = nothing, bw_scale::Real = 1)
+    (fmin > 0) || error("fmin must be positive")
+    (fmax < fs/2) || error("fmax must lie below fs/2 (got fmax = $fmax with fs/2 = $(fs/2))")
+    #The grid is generated in Float64 (like all grids); the bank's precision follows fs
+    T = float(typeof(fs))
+    frqs = convert(Vector{T},erbfreq_array(;fmin,fmax,base_frq,filters_per_erb))
+    return gammatone_filterbank(convert(T,fs),frqs; order, bw, bw_scale)
+end
+
+"""
+    gammatone_filt(fb::gammatone_filterbank, x)
+    gammatone_filt!(Y, fb, x)
+
+Filter the real signal array `x` with every channel of the filterbank, returning the
+complex subband matrix with one row per channel: `Y[i,:]` is `x` filtered by
+`fb.filters[i]`, and `size(Y) == (length(fb.fcs), length(x))`. The in-place form fills the
+preallocated matrix `Y` and returns it. As for the single-filter methods, the computation
+runs in the signal's precision.
+"""
+function gammatone_filt(fb::gammatone_filterbank, x::AbstractVector{T}) where {T<:AbstractFloat}
+    Y = Matrix{Complex{T}}(undef,length(fb.filters),length(x))
+    return gammatone_filt!(Y,fb,x)
+end
+
+function gammatone_filt!(Y::AbstractMatrix{Complex{T}}, fb::gammatone_filterbank, x::AbstractVector{<:Real}) where {T<:AbstractFloat}
+    size(Y) == (length(fb.filters),length(x)) || error("Output must be (number of channels) × (signal length)")
+    for i ∈ eachindex(fb.filters)
+        gammatone_filt!(view(Y,i,:),fb.filters[i],x)
+    end
+    return Y
+end
+
+
+## Analyses
+
+#The filterbank is designed for one sampling rate; refuse signals at any other
+function check_bank_fs(fb::gammatone_filterbank, s::signal)
+    isapprox(convert(Float64,fb.fs),convert(Float64,s.fs);rtol=1e-6) || error("The filterbank was designed for fs = $(fb.fs) Hz but the signal has fs = $(s.fs) Hz")
+    return nothing
+end
+
+"""
+    gammatone_analysis([comp(),] s::signal, fb::gammatone_filterbank)
+    gammatone_analysis([comp(),] s::signal [; <filterbank keyword arguments>])
+    gammatone_analysis([comp(),] x, fs [; <filterbank keyword arguments>])
+
+Complex gammatone filterbank analysis of the [`signal`](@ref) `s` (or of the signal in
+array `x` with sampling rate `fs`): every channel of `fb` applied to the signal, giving a
+[`timefreq`](@ref) with complex components in which row `i` is the subband signal of the
+channel centred at `fcs[i]`, at the signal's full sampling rate (the time axis is
+`(0:N-1)/fs` — per-sample resolution, no framing). The magnitude of each row is the band
+envelope and its angle the fine structure; see [`gammatone_cochleagram`](@ref) for the
+envelope form. With the [`comp()`](@ref comp) argument only the complex component matrix
+is returned.
+
+When no filterbank is supplied, one is designed from the keyword arguments via
+[`gammatone_filterbank`](@ref)`(fs; ...)`.
+"""
+function gammatone_analysis(::comp, s::signal, fb::gammatone_filterbank)
+    check_bank_fs(fb,s)
+    return gammatone_filt(fb,s.x)
+end
+
+function gammatone_analysis(s::signal, fb::gammatone_filterbank)
+    Y = gammatone_analysis(comp(),s,fb)
+    t = (0:length(s.x)-1)./s.fs
+    return timefreq(s,Y,fb.fcs,t,"Gammatone Filterbank (Hohmann 2002)")
+end
+
+gammatone_analysis(::comp, s::signal; kwargs...) = gammatone_analysis(comp(),s,gammatone_filterbank(s.fs;kwargs...))
+gammatone_analysis(s::signal; kwargs...) = gammatone_analysis(s,gammatone_filterbank(s.fs;kwargs...))
+gammatone_analysis(::comp, x::AbstractVector{<:AbstractFloat}, fs::Real; kwargs...) = gammatone_analysis(comp(),signal(x,fs);kwargs...)
+gammatone_analysis(x::AbstractVector{<:AbstractFloat}, fs::Real; kwargs...) = gammatone_analysis(signal(x,fs);kwargs...)
+
+"""
+    gammatone_cochleagram([comp(),] s::signal, fb::gammatone_filterbank)
+    gammatone_cochleagram([comp(),] s::signal [; <filterbank keyword arguments>])
+    gammatone_cochleagram([comp(),] x, fs [; <filterbank keyword arguments>])
+
+Cochleagram of the [`signal`](@ref) `s` (or of the signal in array `x` with sampling rate
+`fs`): the envelope (magnitude) of the [`gammatone_analysis`](@ref), as a real
+[`timefreq`](@ref) with one row per channel at the signal's full sampling rate. A floor of
+`eps(T)` is added to every component, exactly as in [`specgram`](@ref), so logarithms of
+the cochleagram are always well defined (`amp2db(gammatone_cochleagram(s))` plots
+directly). With the [`comp()`](@ref comp) argument only the envelope matrix is returned.
+
+When no filterbank is supplied, one is designed from the keyword arguments via
+[`gammatone_filterbank`](@ref)`(fs; ...)`.
+"""
+function gammatone_cochleagram(::comp, s::signal{T}, fb::gammatone_filterbank) where {T<:AbstractFloat}
+    Y = gammatone_analysis(comp(),s,fb)
+    return abs.(Y) .+ eps(T)
+end
+
+function gammatone_cochleagram(s::signal, fb::gammatone_filterbank)
+    E = gammatone_cochleagram(comp(),s,fb)
+    t = (0:length(s.x)-1)./s.fs
+    return timefreq(s,E,fb.fcs,t,"Gammatone Cochleagram")
+end
+
+gammatone_cochleagram(::comp, s::signal; kwargs...) = gammatone_cochleagram(comp(),s,gammatone_filterbank(s.fs;kwargs...))
+gammatone_cochleagram(s::signal; kwargs...) = gammatone_cochleagram(s,gammatone_filterbank(s.fs;kwargs...))
+gammatone_cochleagram(::comp, x::AbstractVector{<:AbstractFloat}, fs::Real; kwargs...) = gammatone_cochleagram(comp(),signal(x,fs);kwargs...)
+gammatone_cochleagram(x::AbstractVector{<:AbstractFloat}, fs::Real; kwargs...) = gammatone_cochleagram(signal(x,fs);kwargs...)

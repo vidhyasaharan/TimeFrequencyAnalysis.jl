@@ -46,6 +46,23 @@ end
     @test isapprox(tf.components, tf64.components; rtol = 1e-3)
 end
 
+@testset "gammatone" begin
+    #The gammatone chain computes in the signal's precision even through a Float64 bank,
+    #and the Float32 and Float64 paths agree numerically
+    x32 = randn(Float32, 8000)
+    s32 = signal(x32, 16000)
+    fb = gammatone_filterbank(16000.0)
+    tf = gammatone_analysis(s32, fb)
+    @test tf isa timefreq{Float32, ComplexF32}
+    @test eltype(tf.time) == Float32
+    cg = gammatone_cochleagram(s32, fb)
+    @test cg isa timefreq{Float32, Float32}
+    @test amp2db(cg) isa timefreq{Float32, Float32}
+
+    cg64 = gammatone_cochleagram(signal(convert(Vector{Float64}, x32), 16000.0), fb)
+    @test isapprox(cg.components, cg64.components; rtol = 1e-3)
+end
+
 @testset "correlations" begin
     #Correlation outputs must stay in the input precision, for the sequence functions
     #and for both the single-point and batch (matrix) forms of nacf

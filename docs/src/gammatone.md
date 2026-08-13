@@ -26,11 +26,22 @@ Signals are filtered with [`gammatone_filt`](@ref) (or the in-place
 [`gammatone_filt!`](@ref)), which applies the cascade as `order` one-pole complex
 recursions per sample, computing in the signal's own precision.
 
+A [`gammatone_filterbank`](@ref) collects one filter per channel on an ERB-spaced grid of
+centre frequencies (or any explicit grid), and the two analyses build on it:
+[`gammatone_analysis`](@ref) returns the complex subband signals as a
+[`timefreq`](@ref) — per-sample time resolution, envelope and fine structure per
+channel — while [`gammatone_cochleagram`](@ref) returns the envelope form that plots
+directly with the existing recipes (`plot(amp2db(gammatone_cochleagram(s)))`). Both follow
+the package's [`comp()`](@ref comp) convention for bare-array output.
+
 ```@docs
 gammatone_filter
 impulse_response
 gammatone_filt
 gammatone_filt!
+gammatone_filterbank
+gammatone_analysis
+gammatone_cochleagram
 ```
 
 ## References

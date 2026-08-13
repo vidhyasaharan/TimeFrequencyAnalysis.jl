@@ -347,9 +347,10 @@ struct gammatone_filterbank{T<:AbstractFloat}
     fcs::Vector{T}
     filters::Vector{gammatone_filter{T}}
 end
-gammatone_filterbank(fs; fmin=70, fmax=6700, base_frq=1000, filters_per_erb=1,
-                     order=4, bw=nothing, bw_scale=1)
+gammatone_filterbank(fs; fmin=70, fmax=min(6700, 0.45fs), base_frq=1000,
+                     filters_per_erb=1, order=4, bw=nothing, bw_scale=1)
 gammatone_filterbank(fs, fcs; order=4, bw=nothing, bw_scale=1)   #explicit centre frequencies
+#fmax caps at 0.45fs so low-fs signals design cleanly with the defaults (decided at step 4)
 ```
 
 Bank bandwidth semantics: `bw = nothing` → per-channel ERB default; scalar → the same explicit

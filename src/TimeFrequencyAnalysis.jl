@@ -54,8 +54,9 @@ export filter_coefs, filter_resp, filter_magresp
 #Frequency grids and frequency indexing (erb and friends are the auditory ERB scale)
 export logfreq_array, linfreq_array, frqindex, erb, freq2erb, erb2freq, erbfreq_array
 
-#Gammatone filter design, inspection and filtering (Hohmann 2002)
+#Gammatone filterbank analysis (Hohmann 2002)
 export gammatone_filter, impulse_response, gammatone_filt, gammatone_filt!
+export gammatone_filterbank, gammatone_analysis, gammatone_cochleagram
 
 #Sampling helpers
 export time2nsamples, resample

@@ -137,3 +137,41 @@ step3 = let
     plot(p1, p2, p3; layout = (3,1), size = (820, 850))
 end
 display(step3)
+
+## ---------------------------------------------------------------------------------------
+## Step 4 — filterbank and analyses: bank responses and the first cochleagrams
+## ---------------------------------------------------------------------------------------
+#The default 30-channel bank (70 Hz – 6.7 kHz, anchored at 1 kHz): magnitude responses
+#widen in proportion to the ERB as centre frequency rises, while a constant-bw bank keeps
+#every channel the same width. The cochleagram of a linear chirp then shows per-sample
+#time resolution on an ERB frequency axis, next to the framewise, uniform-resolution
+#specgram of the same signal.
+step4 = let
+    fs = 16000.0
+    fb = gammatone_filterbank(fs)
+    f = collect(0.0:4.0:8000.0)
+
+    p1 = plot(; ylims = (-50, 10), ylabel = "Magnitude (dB)", legend = false,
+              title = "Default bank: 30 channels, bw = ERB(fc)")
+    for gf in fb.filters
+        plot!(p1, f, amp2db.(filter_magresp(gf, f)))
+    end
+
+    fbc = gammatone_filterbank(fs; bw = 150.0)
+    p2 = plot(; ylims = (-50, 10), xlabel = "Frequency (Hz)", ylabel = "Magnitude (dB)",
+              legend = false, title = "Constant-bandwidth bank: bw = 150 Hz everywhere")
+    for gf in fbc.filters
+        plot!(p2, f, amp2db.(filter_magresp(gf, f)))
+    end
+
+    #Linear chirp, 100 Hz → 7 kHz over one second
+    t = (0:Int(fs)-1)./fs
+    chirp = sin.(2π.*(100.0.*t .+ 3450.0.*t.^2))
+    s = signal(chirp, fs)
+    #clims clip the eps-floor of quiet channels (-300 dB) so the useful range is visible
+    p3 = plot(amp2db(gammatone_cochleagram(s)); clims = (-80, 0))
+    p4 = plot(amp2db(specgram(framed_signal(s))); clims = (-45, 35))
+
+    plot(p1, p2, p3, p4; layout = @layout([a; b; c d]), size = (950, 1000))
+end
+display(step4)

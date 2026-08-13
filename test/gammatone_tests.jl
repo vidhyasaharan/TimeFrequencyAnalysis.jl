@@ -190,6 +190,102 @@ end
     @test gammatone_filt(gammatone_filter(16000f0, 1000f0), randn(100)) isa Vector{ComplexF64}
 end
 
+@testset "filterbank" begin
+    afs = 16000.0
+    fb = gammatone_filterbank(afs)
+    @test fb isa gammatone_filterbank{Float64}
+    @test length(fb.filters) == 30 == length(fb.fcs) #the gfb demo grid
+    @test fb.fcs == erbfreq_array()
+    @test 1000.0 ∈ fb.fcs
+    @test all(f.fc == fc for (f,fc) in zip(fb.filters,fb.fcs))
+    @test all(f.bw ≈ erb(f.fc) for f in fb.filters)
+    @test all(f.order == 4 for f in fb.filters)
+
+    #fmax defaults to min(6700, 0.45fs), so low sampling rates design cleanly; explicit
+    #fmax at or above Nyquist fails with a clear error
+    fb8 = gammatone_filterbank(8000.0)
+    @test fb8.fcs[end] ≤ 0.45*8000
+    @test_throws ErrorException gammatone_filterbank(afs; fmax = 9000.0)
+    @test_throws ErrorException gammatone_filterbank(afs; fmin = 0.0)
+
+    #Explicit centre frequencies, and the bank bw semantics: nothing → per-channel ERB
+    #(above); scalar → the same bandwidth everywhere; vector → one per channel
+    fcs = [200.0, 500.0, 1200.0]
+    fbe = gammatone_filterbank(afs, fcs)
+    @test fbe.fcs == fcs
+    @test all(f.bw ≈ erb(f.fc) for f in fbe.filters)
+    fbs = gammatone_filterbank(afs, fcs; bw = 100.0)
+    @test all(f.bw == 100.0 for f in fbs.filters)
+    fbv = gammatone_filterbank(afs, fcs; bw = [100.0, 150.0, 200.0])
+    @test [f.bw for f in fbv.filters] == [100.0, 150.0, 200.0]
+    @test_throws ErrorException gammatone_filterbank(afs, fcs; bw = [100.0, 150.0])
+    @test all(f.bw ≈ 2*erb(f.fc) for f in gammatone_filterbank(afs, fcs; bw_scale = 2).filters)
+    @test all(f.order == 3 for f in gammatone_filterbank(afs, fcs; order = 3).filters)
+    @test_throws ErrorException gammatone_filterbank(afs, Float64[])
+
+    @test gammatone_filterbank(16000f0) isa gammatone_filterbank{Float32}
+
+    #Bank filtering: one row per channel, each row identical to the single-filter output;
+    #the in-place form matches and checks its size
+    x = randn(500)
+    Y = gammatone_filt(fb, x)
+    @test Y isa Matrix{ComplexF64}
+    @test size(Y) == (30, 500)
+    @test Y[7,:] == gammatone_filt(fb.filters[7], x)
+    Yb = Matrix{ComplexF64}(undef, 30, 500)
+    @test gammatone_filt!(Yb, fb, x) == Y
+    @test_throws ErrorException gammatone_filt!(Matrix{ComplexF64}(undef, 29, 500), fb, x)
+end
+
+@testset "analyses" begin
+    #Containers on the shared fixture signal (fs = 8 kHz two-tone-in-noise from setup.jl)
+    fb = gammatone_filterbank(fs)
+    Y = gammatone_analysis(comp(), sig, fb)
+    @test Y isa Matrix{ComplexF64}
+    @test size(Y) == (length(fb.fcs), length(sig.x))
+
+    tf = gammatone_analysis(sig, fb)
+    @test tf isa timefreq{Float64, ComplexF64}
+    @test tf.components == Y
+    @test tf.frqs == fb.fcs
+    @test tf.time == collect((0:length(sig.x)-1)./fs)
+    @test tf.title == "Gammatone Filterbank (Hohmann 2002)"
+    @test tf.frames === nothing
+
+    cg = gammatone_cochleagram(sig, fb)
+    @test cg isa timefreq{Float64, Float64}
+    @test cg.components == abs.(Y) .+ eps(Float64)
+    @test all(cg.components .> 0)
+    @test cg.title == "Gammatone Cochleagram"
+    @test gammatone_cochleagram(comp(), sig, fb) == cg.components
+
+    #Keyword forms design the bank internally; the array form wraps the signal form
+    tf2 = gammatone_analysis(sig)
+    @test tf2.frqs == erbfreq_array(;fmax = 0.45*fs)
+    @test gammatone_analysis(sig.x, fs).components == tf2.components
+    @test gammatone_cochleagram(comp(), sig.x, fs) == gammatone_cochleagram(comp(), sig)
+
+    #A tone at fcs[k] maximises the steady-state envelope in channel k
+    fbt = gammatone_filterbank(16000.0)
+    n = 0:3999
+    for k in (5, 15, 25)
+        xk = cos.(2π*fbt.fcs[k].*n./16000.0)
+        E = abs.(gammatone_filt(fbt, xk))
+        @test argmax(vec(sum(E[:,2001:4000]; dims = 2))) == k
+    end
+
+    #Precision follows the signal, not the bank: a Float32 signal through the Float64 bank
+    #gives Float32 containers throughout
+    s32 = signal(randn(Float32, 2000), 8000f0)
+    tf32 = gammatone_analysis(s32, fb)
+    @test tf32 isa timefreq{Float32, ComplexF32}
+    @test eltype(tf32.frqs) == Float32
+    @test gammatone_cochleagram(s32, fb) isa timefreq{Float32, Float32}
+
+    #A bank built for one sampling rate refuses a signal at another
+    @test_throws ErrorException gammatone_analysis(signal(randn(100), 44100.0), fb)
+end
+
 @testset "argument checking and precision" begin
     afs = 16000.0
     @test_throws ErrorException gammatone_filter(afs, 9000.0)  #fc above fs/2
