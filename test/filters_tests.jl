@@ -1,6 +1,7 @@
 #Digital filter representation and frequency responses, checked against filters whose
 #responses are known in closed form (identity, two-tap moving average, single-pole
-#lowpass), plus the frequency-conversion helpers and coefficient type promotion.
+#lowpass, one-pole complex resonator), plus the frequency-conversion helpers and
+#coefficient type promotion (real and complex).
 
 @testset "frequency conversion" begin
     #freq2θ maps Hz to radians per sample (DC → 0, Nyquist → π); freq2z places those
@@ -56,4 +57,50 @@ end
     #Nyquist over [0, fs/2]
     mres = filter_magresp(Fap, f, afs)
     @test all(diff(mres) .< 0)
+end
+
+@testset "complex coefficients" begin
+    afs = 8000.0
+
+    #Promotion rules: any complex input promotes both vectors to Complex of the common real
+    #precision; the first type parameter remains the real precision, so the {T} supertype
+    #checks used for real filters keep working
+    Fc = filter_coefs([1.0], [1.0, 0.5im])
+    @test Fc isa filter_coefs{Float64, ComplexF64}
+    @test Fc isa filter_coefs{Float64}
+    @test filter_coefs(ComplexF32[1], ComplexF32[1, 0.5]) isa filter_coefs{Float32, ComplexF32}
+    @test filter_coefs(Float32[1], ComplexF32[1, 0.5]) isa filter_coefs{Float32, ComplexF32} #real/complex mix
+    @test filter_coefs(Float32[1], ComplexF64[1, 0.5]) isa filter_coefs{Float64, ComplexF64} #mixed precision promotes
+    @test filter_coefs([1, 2], [1, -im]) isa filter_coefs{Float64, ComplexF64} #integer input promotes
+
+    #One-pole complex resonator 1/(1 - ã z⁻¹) with ã = λ e^{iβ}: peak gain 1/(1-λ) exactly
+    #at the pole frequency, and no mirror peak at -fp — the response is one-sided, which no
+    #real-coefficient filter can achieve
+    λ = 0.9
+    fp = 1000.0
+    ã = λ*exp(im*2π*fp/afs)
+    Fp = filter_coefs([1.0], [1.0, -ã])
+    @test filter_magresp(Fp, [fp], afs)[1] ≈ 1/(1 - λ)
+    fgrid = collect(-4000.0:10.0:4000.0)
+    mres = filter_magresp(Fp, fgrid, afs)
+    @test fgrid[argmax(mres)] == fp
+    @test filter_magresp(Fp, [-fp], afs)[1] < 1 #mirror frequency sits far below the peak gain of 10
+
+    #The two evaluation paths must agree for complex coefficients too
+    @test filter_magresp(Fp, fgrid, afs) ≈ abs.(filter_resp(Fp, fgrid, afs))
+end
+
+@testset "z⁻¹ phase convention" begin
+    afs = 8000.0
+
+    #A pure one-sample delay (num = [0,1]) has response e^{-iθ}: phase -2πf/fs, magnitude 1
+    Fd = filter_coefs([0.0, 1.0], [1.0])
+    for f in (500.0, 1000.0, 3000.0)
+        @test angle(TimeFrequencyAnalysis.H(Fd, f, afs)) ≈ -2π*f/afs
+        @test TimeFrequencyAnalysis.Hmag(Fd, f, afs) ≈ 1
+    end
+
+    #Real-coefficient filters keep conjugate-symmetric responses: H(-f) = conj(H(f))
+    Fap = filter_coefs([1], [1.0, -0.9])
+    @test TimeFrequencyAnalysis.H(Fap, -1000.0, afs) ≈ conj(TimeFrequencyAnalysis.H(Fap, 1000.0, afs))
 end

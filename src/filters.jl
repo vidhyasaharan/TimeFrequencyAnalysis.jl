@@ -1,6 +1,7 @@
-#Digital filter representation and frequency responses evaluated on arbitrary frequency
-#grids (e.g. the magnitude response of an all-pole AR model over a chosen set of analysis
-#frequencies).
+#Digital filter representation (real or complex coefficients) and frequency responses
+#evaluated on arbitrary frequency grids (e.g. the magnitude response of an all-pole AR
+#model over a chosen set of analysis frequencies). Transfer functions are evaluated in the
+#standard z⁻¹ convention.
 
 """
     freq2θ(f, fs)
@@ -57,21 +58,29 @@ function freq2z!(z::AbstractVector{<:Complex}, f::AbstractVector{<:Real}, fs::Re
 end
 
 """
-    filter_coefs{T<:AbstractFloat}
+    filter_coefs{T<:AbstractFloat, S<:Union{T,Complex{T}}}
     filter_coefs(num, den)
 
 Coefficients of a rational digital filter: numerator `num` and denominator `den`, constant
-terms first. The convenience constructor accepts any real vectors and promotes both to a
-common floating point element type.
+terms first — `num[k]` and `den[k]` multiply ``z^{-(k-1)}``. Coefficients may be real or
+complex (e.g. the one-pole sections of a complex gammatone filter); `T` is the real
+floating point precision and `S` the coefficient element type. The convenience constructor
+accepts any real or complex vectors and promotes both to a common element type: all-real
+input gives `S = T`, any complex input gives `S = Complex{T}`.
 """
-struct filter_coefs{T<:AbstractFloat}
-    num::Vector{T}
-    den::Vector{T}
+struct filter_coefs{T<:AbstractFloat, S<:Union{T,Complex{T}}}
+    num::Vector{S}
+    den::Vector{S}
 end
 
 function filter_coefs(num::AbstractVector{<:Real}, den::AbstractVector{<:Real})
     T = float(promote_type(eltype(num),eltype(den)))
-    return filter_coefs(convert(Vector{T},num), convert(Vector{T},den))
+    return filter_coefs{T,T}(convert(Vector{T},num), convert(Vector{T},den))
+end
+
+function filter_coefs(num::AbstractVector{<:Union{Real,Complex}}, den::AbstractVector{<:Union{Real,Complex}})
+    T = float(real(promote_type(eltype(num),eltype(den))))
+    return filter_coefs{T,Complex{T}}(convert(Vector{Complex{T}},num), convert(Vector{Complex{T}},den))
 end
 
 
@@ -96,16 +105,13 @@ end
 
 Evaluate the rational transfer function described by `F::filter_coefs` at the complex
 point `z`, or at analogue frequency `f` in Hz given sampling rate `fs` (i.e. at
-``z = e^{i2πf/f_s}``). The numerator and denominator polynomials are evaluated in
-*positive* powers of `z`; on the unit circle this is the complex conjugate of the usual
-negative-power (``z^{-1}``) convention, so magnitudes agree with that convention and
-phases are negated.
+``z = e^{i2πf/f_s}``). The numerator and denominator polynomials are evaluated in negative
+powers of `z` — the standard ``z^{-1}`` convention — so phase responses and group delays
+carry their usual signs (a pure delay ``z^{-1}`` has phase ``-θ``).
 """
 function H(F::filter_coefs, z::Complex{<:Real})
-    npz = powers(z, length(F.num)-1)
-    dpz = powers(z, length(F.den)-1)
-    Hz = dot(F.num,npz)/dot(F.den,dpz)
-    return Hz
+    zi = inv(z)
+    return evalpoly(zi, F.num)/evalpoly(zi, F.den)
 end
 
 H(F::filter_coefs, f::Real, fs::Real) = H(F,freq2z(f,fs))
@@ -131,10 +137,10 @@ end
 
 Magnitude of the transfer function described by `F::filter_coefs` at digital angular
 frequency `θ` in radians per sample, or at analogue frequency `f` in Hz given sampling
-rate `fs`. Equivalent to `abs(H(F, exp(im*θ)))` but avoids allocating the power vectors.
+rate `fs`. Equivalent to `abs(H(F, exp(im*θ)))`.
 """
 function Hmag(F::filter_coefs{T}, θ::Real) where {T<:AbstractFloat}
-    iθ = im*θ
+    niθ = -im*θ #negative sign: the polynomials are evaluated in powers of z⁻¹ = e^{-iθ}
     CT = Complex{float(promote_type(T,typeof(θ)))}
     Nm = convert(CT,F.num[1])
     Dm = convert(CT,F.den[1])
@@ -142,12 +148,12 @@ function Hmag(F::filter_coefs{T}, θ::Real) where {T<:AbstractFloat}
     Dord = length(F.den) - 1
     if(Nord>0)
         for i ∈ 1:Nord
-            Nm += F.num[i+1]*exp(i*iθ)
+            Nm += F.num[i+1]*exp(i*niθ)
         end
     end
     if(Dord>0)
         for i ∈ 1:Dord
-            Dm += F.den[i+1]*exp(i*iθ)
+            Dm += F.den[i+1]*exp(i*niθ)
         end
     end
     return abs(Nm)/abs(Dm)
