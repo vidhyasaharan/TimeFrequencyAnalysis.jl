@@ -351,6 +351,9 @@ gammatone_filterbank(fs; fmin=70, fmax=min(6700, 0.45fs), base_frq=1000,
                      filters_per_erb=1, order=4, bw=nothing, bw_scale=1)
 gammatone_filterbank(fs, fcs; order=4, bw=nothing, bw_scale=1)   #explicit centre frequencies
 #fmax caps at 0.45fs so low-fs signals design cleanly with the defaults (decided at step 4)
+#Both forms also take attenuation_db to build every channel via Route B instead (added at
+#step 6: completes the explicit-bandwidth story at bank level and enables exact
+#cross-checks against pyfilterbank's banks, which are Route B)
 ```
 
 Bank bandwidth semantics: `bw = nothing` → per-channel ERB default; scalar → the same explicit
@@ -534,8 +537,11 @@ for one small bank (embedded literals with provenance).
 *Verify visually* (the classic Hohmann figure pair — script section 6): stacked per-channel
 `real.(h_k)` impulse responses before vs after compensation (fine structure lining up at 4 ms);
 envelope heatmaps before/after; `Σ Re` of the compensated bank ≈ a pulse at `nd`, with
-`summed_resp(fb, f; delay=d)` showing the flattened-but-rippled magnitude the v2 mixer will
-polish.
+`summed_resp(fb, f; delay=d)` showing what alignment buys: near-flat *phase* (a pure
+`nd`-sample delay) where channels are aligned. Found at implementation time: alignment does
+*not* flatten the magnitude — the incoherent raw sum is statistically smoother than the
+coherent picket-fence ripple of the aligned sum — removing that ripple is the v2 mixer's
+job.
 
 **Step 7 — integration and docs.**
 `include("gammatone.jl")` after `filters.jl` in the module (it adds methods to names defined

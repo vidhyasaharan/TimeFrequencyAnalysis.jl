@@ -41,6 +41,12 @@ impulse-response envelope ([`envelope_delay`](@ref), ≈ `(order-1)/(2πb)`), wh
 alignment across channels targets. [`summed_resp`](@ref) shows the bank's summed
 frequency response — deeply rippled until the channels are delay- and phase-aligned.
 
+That alignment is [`gammatone_delay`](@ref): per-channel integer delays and unit phase
+factors, measured from the bank's impulse responses exactly as in the reference
+implementations, applied with [`compensate`](@ref)/[`compensate!`](@ref) or folded into
+the analyses with their `align` keyword. Channels too slow to reach their envelope peak
+within the target delay (normal at the bottom of the bank) are left unshifted.
+
 ```@docs
 gammatone_filter
 impulse_response
@@ -52,6 +58,9 @@ gammatone_cochleagram
 group_delay
 envelope_delay
 summed_resp
+gammatone_delay
+compensate
+compensate!
 ```
 
 ## References

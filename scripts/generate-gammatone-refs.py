@@ -13,7 +13,7 @@
 import importlib.util
 import math
 
-spec = importlib.util.spec_from_file_location("pfb", "pyfilterbank_gammatone.py")
+spec = importlib.util.spec_from_file_location("pfb", "pyfilterbank_gammatone.py")  # fetched per header
 pfb = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pfb)
 
@@ -59,3 +59,40 @@ for c in cases_a:
     print(f"  coef = {coef.real!r} + {coef.imag!r}im")
     print(f"  norm = {k!r}")
     print(f"  b = {b_damp!r}  lambda = {lam!r}")
+
+print()
+print("== Delay/phase-factor reference (gfb_delay_new / hohmann2002delay recipe) ==")
+# Filters and filtering are the ACTUAL pyfilterbank implementation (Route B with
+# bw = erb_aud(fc), attenuation -3 dB); the delay/phase recipe is the algorithm as
+# ported by pyfar's _get_delays_and_phase_factors and pyfilterbank's
+# estimate_max_indices_and_slopes: impulse of nd+3 samples, envelope argmax over the
+# first nd+1 samples, delays = nd - idx_max, slopes = ir[idx+1] - ir[idx-1],
+# phase_factors = 1j/(slopes/|slopes|).
+import numpy as np
+
+fs = 16000
+order = 4
+delay_sec = 0.004
+nd = int(round(fs*delay_sec))
+fcs = [250.0, 1000.0, 3000.0]
+
+irs = []
+for fc in fcs:
+    b, a = pfb.design_filter(sample_rate=fs, order=order, centerfrequency=fc,
+                             band_width=None, band_width_factor=1.0,
+                             attenuation_half_bandwidth_db=-3)
+    x = np.zeros(nd + 3, dtype=complex)
+    x[0] = 1.0
+    y, _ = pfb.fosfilter(b, a, order, x)
+    irs.append(y)
+ir = np.array(irs)
+
+idx_max = np.argmax(np.abs(ir[:, :nd+1]), axis=-1)
+delays = nd - idx_max
+slopes = np.array([ir[k, i+1] - ir[k, i-1] for k, i in enumerate(idx_max)])
+phase_factors = 1j/(slopes/np.abs(slopes))
+
+print(f"fs={fs} order={order} delay={delay_sec} nd={nd} fcs={fcs}")
+print("delays =", list(delays))
+for k, pf in enumerate(phase_factors):
+    print(f"phase_factor[{k}] = {pf.real!r} + {pf.imag!r}im")

@@ -336,6 +336,96 @@ end
     @test maximum(inband)/minimum(inband) > 1.5
 end
 
+@testset "delay and phase compensation" begin
+    afs = 16000.0
+
+    #Cross-check against the reference recipe (gfb_delay_new / hohmann2002delay, as ported
+    #by pyfar and pyfilterbank) run on the actual pyfilterbank filters: a 3-channel
+    #Route-B bank (bw = erb(fc), edges -3 dB) aligned to 4 ms. Reference values generated
+    #on 2026-08-14 by "scripts/generate-gammatone-refs.py". The 250 Hz channel is too slow
+    #for the window and clamps at its edge; the other two align.
+    fbB = gammatone_filterbank(afs, [250.0, 1000.0, 3000.0]; attenuation_db = 3)
+    dB = gammatone_delay(fbB; delay = 0.004)
+    @test dB.nd == 64
+    @test dB.delays == [0, 16, 47]
+    for (k, ref) in enumerate((0.9757621274052979 + 0.21883388842107543im,
+                               0.9999999920136321 + 0.00012638328942236236im,
+                               0.3830361826798044 - 0.9237333396376268im))
+        @test isapprox(dB.phase_factors[k], ref; rtol = 1e-9)
+    end
+    @test all(abs.(dB.phase_factors) .≈ 1)
+
+    #Alignment on the default bank: after compensation every channel that peaks inside
+    #the window has its envelope maximum exactly at nd and is real-positive there, the
+    #summed real part pulses at nd, and the slow bottom channels clamp to Δ = 0
+    fb = gammatone_filterbank(afs)
+    d = gammatone_delay(fb) #default 4 ms → nd = 64
+    @test d.nd == 64
+    e = zeros(300); e[1] = 1.0
+    Y = gammatone_filt(fb, e)
+    Yc = compensate(Y, d)
+    @test size(Yc) == size(Y)
+    for k in eachindex(fb.filters)
+        if envelope_delay(fb.filters[k]) ≤ d.nd
+            row = view(Yc, k, :)
+            @test argmax(abs.(row)) == d.nd + 1
+            @test real(row[d.nd + 1]) > 0.999*abs(row[d.nd + 1])
+        else
+            @test d.delays[k] == 0
+        end
+    end
+    @test any(d.delays .== 0)
+    @test argmax(vec(sum(real.(Yc); dims = 1))) == d.nd + 1
+
+    #compensate copies, compensate! matches it in place, and shapes/arguments are checked
+    @test Yc != Y
+    Yb = copy(Y)
+    @test compensate!(Yb, d) == Yc
+    @test_throws ErrorException compensate(Y[1:5, :], d)
+    @test_throws ErrorException gammatone_delay(fb; delay = -0.001)
+
+    #timefreq form preserves the axes and marks the title; the align keyword is the same
+    #compensation folded into the analyses; the cochleagram container refuses (no phase)
+    s = signal(randn(600), afs)
+    tf = gammatone_analysis(s, fb)
+    tfc = compensate(tf, d)
+    @test tfc isa timefreq{Float64, ComplexF64}
+    @test tfc.components == compensate(tf.components, d)
+    @test tfc.frqs == tf.frqs && tfc.time == tf.time
+    @test endswith(tfc.title, "(delay compensated)")
+    @test_throws ErrorException compensate(gammatone_cochleagram(s, fb), d)
+    @test gammatone_analysis(s, fb; align = 0.004).components == tfc.components
+    @test gammatone_analysis(s, fb; align = 0.004).title == tfc.title
+    @test gammatone_cochleagram(comp(), s, fb; align = 0.004) == abs.(tfc.components) .+ eps(Float64)
+    @test endswith(gammatone_cochleagram(s, fb; align = 0.004).title, "(delay compensated)")
+    @test gammatone_analysis(s; align = 0.004) isa timefreq{Float64, ComplexF64}
+
+    #Precision: a Float64-built compensation applies to Float32 subbands in Float32
+    s32 = signal(randn(Float32, 400), 16000f0)
+    tfc32 = compensate(gammatone_analysis(s32, fb), d)
+    @test tfc32 isa timefreq{Float32, ComplexF32}
+
+    #Compensated summed response: the closed-form sum Σ c_k e^{-iθΔ_k} H_k, accepting a
+    #prebuilt object or a target delay. What alignment delivers is PHASE coherence: after
+    #removing the pure nd-sample delay, the compensated sum's phase is nearly flat where
+    #the channels are aligned, while the raw sum's phase swings the full ±π. (Magnitude
+    #flatness is NOT improved by alignment — the incoherent raw sum is statistically
+    #smooth while the coherent sum shows the picket-fence ripple the v2 mixer removes —
+    #so only a loose magnitude bound is asserted.)
+    fgrid = collect(100.0:5.0:7900.0)
+    srr = summed_resp(fb, fgrid)
+    src = summed_resp(fb, fgrid; delay = d)
+    @test src ≈ summed_resp(fb, fgrid; delay = 0.004)
+    θ = 2π.*fgrid./afs
+    manual = sum(d.phase_factors[k].*cis.(-θ.*d.delays[k]).*filter_resp(fb.filters[k], fgrid) for k in eachindex(fb.filters))
+    @test src ≈ manual
+    aligned_band = frqindex(800.0, fgrid):frqindex(5000.0, fgrid)
+    @test maximum(abs.(angle.(src[aligned_band].*cis.(θ[aligned_band].*d.nd)))) < 0.2
+    @test maximum(abs.(angle.(srr[aligned_band].*cis.(θ[aligned_band].*d.nd)))) > 2
+    band = frqindex(300.0, fgrid):frqindex(5000.0, fgrid)
+    @test maximum(abs.(src[band]))/minimum(abs.(src[band])) < 2.5
+end
+
 @testset "argument checking and precision" begin
     afs = 16000.0
     @test_throws ErrorException gammatone_filter(afs, 9000.0)  #fc above fs/2

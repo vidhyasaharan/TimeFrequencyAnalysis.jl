@@ -274,9 +274,12 @@ where the design assumptions end.
 Bandwidths follow the single-filter rules per channel: each defaults to its auditory
 bandwidth [`erb`](@ref)`(fc)`; `bw` overrides that with one explicit bandwidth for every
 channel (scalar — a constant-bandwidth bank) or one per channel (vector matching the
-number of channels); `bw_scale` multiplies whichever is in effect. Note that channel
-density (`filters_per_erb`) and bandwidth are independent: one packs more filters, the
-other widens each of them.
+number of channels); `bw_scale` multiplies whichever is in effect. By default the
+bandwidth is realised as the filter's equivalent rectangular bandwidth (the
+[`gammatone_filter`](@ref) keyword form); passing `attenuation_db` instead places every
+channel's band edges `fc ± B/2` that many dB below its peak (the explicit-attenuation
+form, as in pyfilterbank's banks). Note that channel density (`filters_per_erb`) and
+bandwidth are independent: one packs more filters, the other widens each of them.
 
 # Fields
 - `fs::T` : sampling rate in Hz
@@ -290,7 +293,8 @@ struct gammatone_filterbank{T<:AbstractFloat}
 end
 
 function gammatone_filterbank(fs::Real, fcs::AbstractVector{<:Real}; order::Int = 4,
-        bw::Union{Nothing,Real,AbstractVector{<:Real}} = nothing, bw_scale::Real = 1)
+        bw::Union{Nothing,Real,AbstractVector{<:Real}} = nothing, bw_scale::Real = 1,
+        attenuation_db::Union{Nothing,Real} = nothing)
     isempty(fcs) && error("The filterbank needs at least one centre frequency")
     if(bw isa AbstractVector)
         length(bw) == length(fcs) || error("bw must be a scalar or have one bandwidth per centre frequency")
@@ -301,20 +305,28 @@ function gammatone_filterbank(fs::Real, fcs::AbstractVector{<:Real}; order::Int 
     filters = Vector{gammatone_filter{T}}(undef,length(fcsT))
     for i ∈ eachindex(fcsT)
         bwi = (bw isa AbstractVector) ? bw[i] : bw
-        filters[i] = gammatone_filter(fsT,fcsT[i]; bw = bwi, bw_scale, order)
+        if(attenuation_db === nothing)
+            filters[i] = gammatone_filter(fsT,fcsT[i]; bw = bwi, bw_scale, order)
+        else
+            #Route B per channel: bandwidth default and scaling as above, edges at
+            #fc ± B/2 sitting attenuation_db below the peak
+            B = convert(Float64,bw_scale)*((bwi === nothing) ? erb(convert(Float64,fcsT[i])) : convert(Float64,bwi))
+            filters[i] = gammatone_filter(fsT,fcsT[i],B,attenuation_db; order)
+        end
     end
     return gammatone_filterbank{T}(fsT,fcsT,filters)
 end
 
 function gammatone_filterbank(fs::Real; fmin::Real = 70, fmax::Real = min(6700,0.45*fs),
         base_frq::Real = 1000, filters_per_erb::Real = 1, order::Int = 4,
-        bw::Union{Nothing,Real,AbstractVector{<:Real}} = nothing, bw_scale::Real = 1)
+        bw::Union{Nothing,Real,AbstractVector{<:Real}} = nothing, bw_scale::Real = 1,
+        attenuation_db::Union{Nothing,Real} = nothing)
     (fmin > 0) || error("fmin must be positive")
     (fmax < fs/2) || error("fmax must lie below fs/2 (got fmax = $fmax with fs/2 = $(fs/2))")
     #The grid is generated in Float64 (like all grids); the bank's precision follows fs
     T = float(typeof(fs))
     frqs = convert(Vector{T},erbfreq_array(;fmin,fmax,base_frq,filters_per_erb))
-    return gammatone_filterbank(convert(T,fs),frqs; order, bw, bw_scale)
+    return gammatone_filterbank(convert(T,fs),frqs; order, bw, bw_scale, attenuation_db)
 end
 
 """
@@ -364,21 +376,27 @@ envelope form. With the [`comp()`](@ref comp) argument only the complex componen
 is returned.
 
 When no filterbank is supplied, one is designed from the keyword arguments via
-[`gammatone_filterbank`](@ref)`(fs; ...)`.
+[`gammatone_filterbank`](@ref)`(fs; ...)`. Passing `align` (a target delay in seconds)
+folds delay and phase compensation into the analysis: the subbands are aligned with
+[`compensate!`](@ref compensate) using [`gammatone_delay`](@ref)`(fb; delay = align)`.
 """
-function gammatone_analysis(::comp, s::signal, fb::gammatone_filterbank)
+function gammatone_analysis(::comp, s::signal, fb::gammatone_filterbank; align::Union{Nothing,Real} = nothing)
     check_bank_fs(fb,s)
-    return gammatone_filt(fb,s.x)
+    Y = gammatone_filt(fb,s.x)
+    (align === nothing) || compensate!(Y,gammatone_delay(fb;delay = align))
+    return Y
 end
 
-function gammatone_analysis(s::signal, fb::gammatone_filterbank)
-    Y = gammatone_analysis(comp(),s,fb)
+function gammatone_analysis(s::signal, fb::gammatone_filterbank; align::Union{Nothing,Real} = nothing)
+    Y = gammatone_analysis(comp(),s,fb; align)
     t = (0:length(s.x)-1)./s.fs
-    return timefreq(s,Y,fb.fcs,t,"Gammatone Filterbank (Hohmann 2002)")
+    title = "Gammatone Filterbank (Hohmann 2002)"
+    (align === nothing) || (title *= " (delay compensated)")
+    return timefreq(s,Y,fb.fcs,t,title)
 end
 
-gammatone_analysis(::comp, s::signal; kwargs...) = gammatone_analysis(comp(),s,gammatone_filterbank(s.fs;kwargs...))
-gammatone_analysis(s::signal; kwargs...) = gammatone_analysis(s,gammatone_filterbank(s.fs;kwargs...))
+gammatone_analysis(::comp, s::signal; align::Union{Nothing,Real} = nothing, kwargs...) = gammatone_analysis(comp(),s,gammatone_filterbank(s.fs;kwargs...); align)
+gammatone_analysis(s::signal; align::Union{Nothing,Real} = nothing, kwargs...) = gammatone_analysis(s,gammatone_filterbank(s.fs;kwargs...); align)
 gammatone_analysis(::comp, x::AbstractVector{<:AbstractFloat}, fs::Real; kwargs...) = gammatone_analysis(comp(),signal(x,fs);kwargs...)
 gammatone_analysis(x::AbstractVector{<:AbstractFloat}, fs::Real; kwargs...) = gammatone_analysis(signal(x,fs);kwargs...)
 
@@ -395,23 +413,137 @@ the cochleagram are always well defined (`amp2db(gammatone_cochleagram(s))` plot
 directly). With the [`comp()`](@ref comp) argument only the envelope matrix is returned.
 
 When no filterbank is supplied, one is designed from the keyword arguments via
-[`gammatone_filterbank`](@ref)`(fs; ...)`.
+[`gammatone_filterbank`](@ref)`(fs; ...)`. Passing `align` (a target delay in seconds)
+delay- and phase-compensates the subbands before the envelope is taken, so the channel
+envelopes are time aligned (see [`gammatone_delay`](@ref)).
 """
-function gammatone_cochleagram(::comp, s::signal{T}, fb::gammatone_filterbank) where {T<:AbstractFloat}
-    Y = gammatone_analysis(comp(),s,fb)
+function gammatone_cochleagram(::comp, s::signal{T}, fb::gammatone_filterbank; align::Union{Nothing,Real} = nothing) where {T<:AbstractFloat}
+    Y = gammatone_analysis(comp(),s,fb; align)
     return abs.(Y) .+ eps(T)
 end
 
-function gammatone_cochleagram(s::signal, fb::gammatone_filterbank)
-    E = gammatone_cochleagram(comp(),s,fb)
+function gammatone_cochleagram(s::signal, fb::gammatone_filterbank; align::Union{Nothing,Real} = nothing)
+    E = gammatone_cochleagram(comp(),s,fb; align)
     t = (0:length(s.x)-1)./s.fs
-    return timefreq(s,E,fb.fcs,t,"Gammatone Cochleagram")
+    title = "Gammatone Cochleagram"
+    (align === nothing) || (title *= " (delay compensated)")
+    return timefreq(s,E,fb.fcs,t,title)
 end
 
-gammatone_cochleagram(::comp, s::signal; kwargs...) = gammatone_cochleagram(comp(),s,gammatone_filterbank(s.fs;kwargs...))
-gammatone_cochleagram(s::signal; kwargs...) = gammatone_cochleagram(s,gammatone_filterbank(s.fs;kwargs...))
+gammatone_cochleagram(::comp, s::signal; align::Union{Nothing,Real} = nothing, kwargs...) = gammatone_cochleagram(comp(),s,gammatone_filterbank(s.fs;kwargs...); align)
+gammatone_cochleagram(s::signal; align::Union{Nothing,Real} = nothing, kwargs...) = gammatone_cochleagram(s,gammatone_filterbank(s.fs;kwargs...); align)
 gammatone_cochleagram(::comp, x::AbstractVector{<:AbstractFloat}, fs::Real; kwargs...) = gammatone_cochleagram(comp(),signal(x,fs);kwargs...)
 gammatone_cochleagram(x::AbstractVector{<:AbstractFloat}, fs::Real; kwargs...) = gammatone_cochleagram(signal(x,fs);kwargs...)
+
+
+## Delay and phase compensation
+
+"""
+    gammatone_delay{T<:AbstractFloat}
+    gammatone_delay(fb::gammatone_filterbank; delay = 0.004)
+
+Per-channel delay and phase compensation for a filterbank, computed as in `gfb_delay_new`
+(Hohmann 2002, §4): the goal is that after compensation every channel's response to an
+impulse peaks — envelope and fine structure together — at one common target `delay`
+(in seconds, default 4 ms; `nd = round(delay*fs)` samples).
+
+A unit impulse is sent through the bank and each channel's envelope maximum is located
+within the window `[0, nd]`; the channel is then delayed by the remaining
+`Δ_k = nd - n_peak(k)` samples, and rotated by the unit phase factor ``c_k = i|s_k|/s_k``,
+where ``s_k`` is the complex slope of the impulse response at the envelope maximum. At an
+interior maximum this rotation makes the channel real and positive at the target instant
+(at the envelope peak the slope is purely the fine structure's, ``i`` times the peak
+value's phase); channels too slow to peak within the window — normal at the bottom of the
+bank — sit at the window edge, get `Δ_k = 0`, and remain partially misaligned, which the
+reference design accepts.
+
+Apply with [`compensate`](@ref)/[`compensate!`](@ref compensate), or pass `align` to the
+analyses directly.
+
+# Fields
+- `fs::T` : sampling rate the compensation was built for, in Hz
+- `nd::Int` : target delay in samples
+- `delays::Vector{Int}` : per-channel delay ``Δ_k`` in samples
+- `phase_factors::Vector{Complex{T}}` : per-channel unit phasors ``c_k``
+"""
+struct gammatone_delay{T<:AbstractFloat}
+    fs::T
+    nd::Int
+    delays::Vector{Int}
+    phase_factors::Vector{Complex{T}}
+end
+
+function gammatone_delay(fb::gammatone_filterbank{T}; delay::Real = 0.004) where {T<:AbstractFloat}
+    (delay ≥ 0) || error("The alignment target delay must be non-negative")
+    nd = Int(round(convert(Float64,delay)*convert(Float64,fb.fs)))
+    #Impulse responses over the search window plus two samples, so the slope at a
+    #window-edge maximum stays in bounds (the reference implementations do the same)
+    e = zeros(Float64,nd+3)
+    e[1] = 1.0
+    H = gammatone_filt(fb,e)
+    nch = length(fb.filters)
+    delays = Vector{Int}(undef,nch)
+    phase_factors = Vector{Complex{T}}(undef,nch)
+    for k ∈ 1:nch
+        m = argmax(abs.(view(H,k,1:nd+1))) #envelope maximum within [0, nd] (m is 1-based)
+        delays[k] = nd + 1 - m
+        s = (m > 1) ? H[k,m+1] - H[k,m-1] : H[k,2] - H[k,1] #one-sided guard, reachable only for order 1
+        phase_factors[k] = convert(Complex{T},im*abs(s)/s)
+    end
+    return gammatone_delay{T}(fb.fs,nd,delays,phase_factors)
+end
+
+"""
+    compensate!(Y, d::gammatone_delay)
+
+In-place form of [`compensate`](@ref): apply the per-channel delay and phase compensation
+to the complex subband matrix `Y` (one channel per row) and return it.
+"""
+function compensate!(Y::AbstractMatrix{Complex{T}}, d::gammatone_delay) where {T<:AbstractFloat}
+    size(Y,1) == length(d.delays) || error("The compensation was built for $(length(d.delays)) channels but the input has $(size(Y,1)) rows")
+    for k ∈ axes(Y,1)
+        Δ = d.delays[k]
+        c = convert(Complex{T},d.phase_factors[k])
+        row = view(Y,k,:)
+        N = length(row)
+        if(Δ > 0)
+            for n ∈ N:-1:(Δ+1)
+                row[n] = c*row[n-Δ]
+            end
+            for n ∈ 1:min(Δ,N)
+                row[n] = 0
+            end
+        else
+            for n ∈ 1:N
+                row[n] = c*row[n]
+            end
+        end
+    end
+    return Y
+end
+
+"""
+    compensate(Y::AbstractMatrix, d::gammatone_delay)
+    compensate(tf::timefreq, d::gammatone_delay)
+
+Apply the per-channel delay and phase compensation `d` to the complex subband
+representation returned by [`gammatone_analysis`](@ref):
+``ỹ_k[n] = c_k y_k[n - Δ_k]``, zero-filled at the start with the tail truncated, so the
+output has the same size as the input. Returns an aligned copy — for a
+[`timefreq`](@ref) input, a new `timefreq` with the same signal, frequency and time axes
+and the title marked accordingly (see [`compensate!`](@ref) for the in-place matrix
+form). Compensation needs the complex analysis output; the cochleagram has already
+discarded the phase.
+"""
+compensate(Y::AbstractMatrix{<:Complex}, d::gammatone_delay) = compensate!(copy(Y),d)
+
+function compensate(tf::timefreq{T,Complex{T}}, d::gammatone_delay) where {T<:AbstractFloat}
+    comps = compensate(tf.components,d)
+    title = (tf.title === nothing) ? nothing : tf.title*" (delay compensated)"
+    return timefreq(tf.signal,tf.frames,comps,tf.frqs,tf.time,title)
+end
+
+compensate(::timefreq, ::gammatone_delay) = error("compensate expects the complex gammatone_analysis output; the cochleagram has already discarded the phase")
 
 
 ## Delay and summed-response inspection
@@ -466,18 +598,38 @@ function envelope_delay(gf::gammatone_filter)
 end
 
 """
-    summed_resp(fb::gammatone_filterbank, f)
+    summed_resp(fb::gammatone_filterbank, f; delay = nothing)
 
 Complex sum of the channel frequency responses of the filterbank at each frequency of `f`
 in Hz: the transfer function of analysing with the bank and summing the raw channel
 outputs. Because the channels carry very different delays and phases, the uncompensated
-sum interferes and its magnitude ripples deeply — flattening it is the job of the
-per-channel delay/phase alignment and the mixer gains of the analysis–synthesis framework.
+sum interferes and its magnitude ripples deeply.
+
+With `delay` — a [`gammatone_delay`](@ref), or a target delay in seconds from which one is
+built — the sum is taken after per-channel compensation,
+``Σ_k c_k e^{-iθΔ_k} H_k(e^{iθ})``: the response of analysing, aligning and summing. This
+is far flatter; the residual ripple is what the mixer gains of the synthesis stage (v2)
+remove.
 """
-function summed_resp(fb::gammatone_filterbank, f::AbstractVector{<:Real})
-    resp = filter_resp(fb.filters[1],f)
-    for i ∈ 2:length(fb.filters)
-        resp .+= filter_resp(fb.filters[i],f)
+function summed_resp(fb::gammatone_filterbank, f::AbstractVector{<:Real}; delay::Union{Nothing,Real,gammatone_delay} = nothing)
+    if(delay === nothing)
+        resp = filter_resp(fb.filters[1],f)
+        for i ∈ 2:length(fb.filters)
+            resp .+= filter_resp(fb.filters[i],f)
+        end
+        return resp
+    end
+    d = (delay isa gammatone_delay) ? delay : gammatone_delay(fb;delay)
+    length(d.delays) == length(fb.filters) || error("The delay compensation does not match the number of channels")
+    θ = freq2θ(f,fb.fs)
+    resp = zeros(ComplexF64,length(f))
+    for k ∈ eachindex(fb.filters)
+        Hk = filter_resp(fb.filters[k],f)
+        ck = convert(ComplexF64,d.phase_factors[k])
+        Δ = d.delays[k]
+        for i ∈ eachindex(resp)
+            resp[i] += ck*cis(-θ[i]*Δ)*Hk[i]
+        end
     end
     return resp
 end

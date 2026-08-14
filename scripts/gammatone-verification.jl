@@ -215,3 +215,59 @@ step5 = let
     plot(p1, p2, p3; layout = (3,1), size = (850, 900))
 end
 display(step5)
+
+## ---------------------------------------------------------------------------------------
+## Step 6 — delay and phase compensation: the classic before/after alignment figure
+## ---------------------------------------------------------------------------------------
+#Left: raw per-channel impulse responses (real parts, each normalised) — the envelope
+#peaks drift later and later towards the bottom of the bank. Right: after gammatone_delay
+#compensation the envelopes and the fine structure line up at the 4 ms target (the slowest
+#channels cannot be advanced and stay put). Below: the summed real parts become a pulse at
+#4 ms. In the frequency domain what alignment buys is PHASE coherence — the compensated
+#sum is a near-pure nd-sample delay where channels are aligned — while the magnitude keeps
+#a picket-fence ripple (the incoherent raw sum is actually smoother in magnitude); that
+#residue is the v2 mixer's job.
+step6 = let
+    fs = 16000.0
+    fb = gammatone_filterbank(fs)
+    d = gammatone_delay(fb; delay = 0.004)
+    N = Int(round(0.03*fs))
+    e = zeros(N); e[1] = 1.0
+    Y = gammatone_filt(fb, e)
+    Yc = compensate(Y, d)
+    t = 1000 .* (0:N-1)./fs
+
+    function stackplot(M, ttl)
+        p = plot(; title = ttl, xlabel = "Time (ms)", ylabel = "Channel",
+                 legend = false)
+        for k in axes(M, 1)
+            r = view(M, k, :)
+            plot!(p, t, k .+ 0.6.*real.(r)./maximum(abs.(r)); c = :steelblue, lw = 0.8)
+        end
+        vline!(p, [1000*d.nd/fs]; ls = :dash, c = :black)
+        p
+    end
+    p1 = stackplot(Y, "Impulse responses, raw")
+    p2 = stackplot(Yc, "After delay + phase compensation")
+
+    p3 = plot(t, [vec(sum(real.(Y); dims = 1)) vec(sum(real.(Yc); dims = 1))];
+              label = ["raw sum" "compensated sum"], xlabel = "Time (ms)",
+              title = "Σ of channel real parts: an impulse re-emerges at 4 ms")
+    vline!(p3, [1000*d.nd/fs]; ls = :dash, c = :black, label = "")
+
+    fgrid = collect(60.0:2.0:7900.0)
+    θg = 2π.*fgrid./fs
+    sr_raw = summed_resp(fb, fgrid)
+    sr_cmp = summed_resp(fb, fgrid; delay = d)
+    p4 = plot(fgrid, amp2db.(abs.(sr_raw));
+              label = "raw", xlabel = "Frequency (Hz)", ylabel = "Magnitude (dB)",
+              title = "Summed response magnitude")
+    plot!(p4, fgrid, amp2db.(abs.(sr_cmp)); label = "delay compensated")
+    p5 = plot(fgrid, angle.(sr_raw.*cis.(θg.*d.nd));
+              label = "raw", xlabel = "Frequency (Hz)", ylabel = "Phase (rad)",
+              title = "Summed-response phase after removing the 4 ms delay")
+    plot!(p5, fgrid, angle.(sr_cmp.*cis.(θg.*d.nd)); label = "delay compensated", lw = 2)
+
+    plot(p1, p2, p3, p4, p5; layout = @layout([a b; c; d e]), size = (1050, 1150))
+end
+display(step6)
