@@ -11,7 +11,12 @@ with supporting utilities (window functions, frequency grids, resampling and syn
 signal generators). Correlation analyses ([`xcorr`](@ref), [`acorr`](@ref), [`acf`](@ref),
 [`nacf`](@ref)) and digital filter responses on arbitrary frequency grids
 ([`filter_coefs`](@ref), [`filter_resp`](@ref), [`filter_magresp`](@ref)) complete the
-toolkit. Plot recipes for the container types load automatically when the Plots ecosystem
+classical toolkit. An auditory-model branch adds the complex gammatone filterbank of
+Hohmann (2002): ERB-scale frequency grids ([`erbfreq_array`](@ref)), filter and filterbank
+design ([`gammatone_filter`](@ref), [`gammatone_filterbank`](@ref)), complex-subband and
+cochleagram analyses ([`gammatone_analysis`](@ref), [`gammatone_cochleagram`](@ref)), and
+per-channel delay and phase alignment ([`gammatone_delay`](@ref), [`compensate`](@ref)).
+Plot recipes for the container types load automatically when the Plots ecosystem
 (RecipesBase) is present — a package extension, so none of it is a hard dependency.
 
 All types are parametric in the floating point precision `T<:AbstractFloat` of the signal,

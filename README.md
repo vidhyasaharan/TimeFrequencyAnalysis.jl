@@ -12,6 +12,9 @@ Time-frequency analysis of uniformly sampled signals in Julia:
 - **Framing** — `enframe`, `view_frame`, `extract_frame`, `frame_energy`
 - **Spectral analyses** — `dft`, `magspec`, `specgram` (STFT magnitude), `periodogram` on
   arbitrary (e.g. log-spaced) frequency grids
+- **Gammatone filterbank** — the complex auditory filterbank of Hohmann (2002):
+  ERB-spaced channels, `gammatone_analysis` (complex subbands) and `gammatone_cochleagram`
+  (envelopes), with per-channel delay/phase alignment
 - **Utilities** — window functions, frequency grids, resampling, synthetic signal generators,
   elementwise `log`/`log10`/`amp2db`/`pow2db` on analysis results
 
@@ -41,6 +44,7 @@ x  = cos.(2π*440 .* (1:8000) ./ fs) .+ 0.1 .* white_noise(8000)
 s      = signal(x, fs)
 frames = framed_signal(s, 0.02, 0.01)   # 20 ms frames every 10 ms
 tf     = amp2db(specgram(frames))       # STFT magnitude spectrogram in dB
+cg     = amp2db(gammatone_cochleagram(s))  # auditory (gammatone) cochleagram in dB
 ```
 
 See the [documentation](https://vidhyasaharan.github.io/TimeFrequencyAnalysis.jl/dev/) for

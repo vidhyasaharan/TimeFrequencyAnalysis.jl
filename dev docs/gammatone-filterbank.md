@@ -1,8 +1,10 @@
 # Gammatone filterbank analysis (Hohmann 2002) — implementation plan
 
-**Status: planned, not started** (drafted 2026-08-13; revised same day: explicit-bandwidth
-construction, long `gammatone_*` names, `filter_coefs` generalised first, per-step
-tests + verification plots).
+**Status: v1 implemented** (plan drafted 2026-08-13; revised same day for explicit-bandwidth
+construction, long `gammatone_*` names, `filter_coefs` generalised first, and per-step
+tests + verification plots; steps 1–7 implemented 2026-08-13/14 — decisions and findings
+made during implementation are annotated inline in §4). The v2 scope of §6 (mixer +
+resynthesis, streaming, decimated envelopes) remains open.
 
 Scope of this first version: the **analysis** side — a bank of 4th-order complex gammatone
 filters with ERB-spaced centre frequencies and, by default, ERB-proportional bandwidths (with a
