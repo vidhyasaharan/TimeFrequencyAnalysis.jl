@@ -53,14 +53,14 @@ export amp2db, pow2db
 #Correlation sequences and short-time correlation functions
 export xcorr, xcorr!, acorr, acorr!, acf, nacf
 
-#Digital filter representation and frequency responses
-export filter_coefs, filter_resp, filter_magresp
+#Digital filter representation, frequency responses and measured impulse responses
+export filter_coefs, filter_resp, filter_magresp, filter_impresp
 
 #Frequency grids and frequency indexing (erb and friends are the auditory ERB scale)
 export logfreq_array, linfreq_array, frqindex, erb, freq2erb, erb2freq, erbfreq_array
 
 #Gammatone filterbank analysis (Hohmann 2002)
-export gammatone_filter, impulse_response, gammatone_filt, gammatone_filt!
+export gammatone_filter, gammatone_impulse_response, gammatone_filt, gammatone_filt!
 export gammatone_filterbank, gammatone_analysis, gammatone_cochleagram
 export group_delay, envelope_delay, summed_resp
 export gammatone_delay, compensate, compensate!
@@ -81,7 +81,7 @@ include("spectral_analyses.jl") #dft, magspec, specgram, periodogram, cexp
 include("element_ops.jl")       #log/log10/amp2db/pow2db methods for spectrum and timefreq
 include("correlations.jl")      #xcorr(!), acorr(!), acf, nacf
 include("filters.jl")           #filter_coefs, filter_resp, filter_magresp and helpers
-include("gammatone.jl")         #gammatone_filter, impulse_response, gammatone_filt(!) and helpers
+include("gammatone.jl")         #gammatone_filter(bank), gammatone_filt(!), analyses, alignment and helpers
 include("plots_support.jl")     #generate_ticks (the recipes live in the RecipesBase extension)
 
 end # module

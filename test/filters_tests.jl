@@ -90,6 +90,22 @@ end
     @test filter_magresp(Fp, fgrid, afs) ≈ abs.(filter_resp(Fp, fgrid, afs))
 end
 
+@testset "impulse responses" begin
+    #filter_impresp measures by running a unit impulse through the filter: FIR
+    #coefficients reproduce themselves, a real one-pole gives 0.9ⁿ, a complex one-pole
+    #gives ãⁿ; like the frequency-response helpers the measurement runs in Float64
+    Ffir = filter_coefs([1.0, 2.0, 3.0], [1.0])
+    @test filter_impresp(Ffir, 5) == [1.0, 2.0, 3.0, 0.0, 0.0]
+    Fap = filter_coefs([1], [1.0, -0.9])
+    @test filter_impresp(Fap, 20) ≈ 0.9.^(0:19)
+    ã = 0.9*exp(im*2π*1000.0/8000.0)
+    Fp = filter_coefs([1.0], [1.0, -ã])
+    h = filter_impresp(Fp, 20)
+    @test h isa Vector{ComplexF64}
+    @test h ≈ ã.^(0:19)
+    @test_throws ErrorException filter_impresp(Fp, 0)
+end
+
 @testset "z⁻¹ phase convention" begin
     afs = 8000.0
 

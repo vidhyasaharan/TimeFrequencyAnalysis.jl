@@ -45,7 +45,7 @@ display(step1)
 step2a = let
     fs = 16000.0
     gf = gammatone_filter(fs, 1000.0)
-    t, h = impulse_response(gf)
+    t, h = gammatone_impulse_response(gf)
     p1 = plot(1000 .* t, [real.(h) abs.(h)];
               label = ["real part" "envelope"], xlabel = "Time (ms)",
               title = "Impulse response, fc = 1 kHz, order 4, bw = ERB(fc) ≈ 132.6 Hz")
@@ -106,7 +106,7 @@ step3 = let
     N = 400
     e = zeros(N); e[1] = 1.0
     y = gammatone_filt(gf, e)
-    t, h = impulse_response(gf; dur = N/fs)
+    t, h = gammatone_impulse_response(gf; dur = N/fs)
     maxerr = maximum(abs.(y .- h))
     p1 = plot(1000 .* t, real.(h); label = "closed form (real part)",
               title = "Kernel vs closed form: max |difference| = $(round(maxerr, sigdigits=3))")

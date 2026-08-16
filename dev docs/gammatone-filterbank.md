@@ -171,9 +171,10 @@ $$h[n] = k \binom{n+\gamma-1}{\gamma-1}\, \tilde a^{\,n}, \qquad n \ge 0,$$
 
 for $\gamma = 4$: $h[n] = k\,\frac{(n+1)(n+2)(n+3)}{6}\, \lambda^n e^{i\beta n}$. Two uses:
 
-1. `impulse_response` can be implemented from this closed form **at design time**, before any
-   filtering kernel exists — which is what lets impulse responses be plotted as soon as a
-   filter can be designed (step 2).
+1. `gammatone_impulse_response` (named `impulse_response` until the post-v1 review) can be
+   implemented from this closed form **at design time**, before any filtering kernel
+   exists — which is what lets impulse responses be plotted as soon as a filter can be
+   designed (step 2).
 2. It is a machine-precision target for unit tests of the filtering kernel (step 3) — stronger
    than comparing against the sampled analogue $g(t)$, which the digital filter only
    approximates.
@@ -405,7 +406,8 @@ All return plain arrays that plot in one line with the Plots ecosystem; **no new
 in v1** (cochleagrams already render through the existing `timefreq` recipe).
 
 ```julia
-impulse_response(gf; dur=nothing)   -> (t, h::Vector{Complex})  #closed form §2.6; dur defaults to decay to −80 dB re peak
+gammatone_impulse_response(gf; dur=nothing) -> (t, h::Vector{Complex}) #closed form §2.6; dur defaults to decay to −80 dB re peak
+filter_impresp(F_or_gf_or_fb, n)    -> Vector/Matrix            #measured: unit impulse through the filter (generic, filters.jl)
 filter_coefs(gf)                    -> filter_coefs             #binomial expansion; feeds the machinery below
 filter_resp(gf, f)                  -> Vector{Complex}          #= filter_resp(filter_coefs(gf), f, gf.fs)
 filter_resp(fb, f)                  -> Matrix                   #nch × nfrq
@@ -415,6 +417,12 @@ group_delay(gf, f)                  -> Vector                   #numeric −dφ/
 group_delay(gf)                     -> scalar                   #closed form γλ/(1−λ) at fc
 envelope_delay(gf)                  -> scalar                   #measured argmax|h|; ≈ (γ−1)/(2πb)
 ```
+
+*(Post-v1 review: `impulse_response` was renamed `gammatone_impulse_response` — it is the
+analytic, gammatone-specific form — and the measured run-an-impulse-through-the-filter
+functionality was extracted from `gammatone_delay` as the generic `filter_impresp` in
+filters.jl, with methods for `filter_coefs` (via `DSP.filt`), `gammatone_filter` and
+`gammatone_filterbank`.)*
 
 Phase responses need no dedicated helper: `angle.(filter_resp(gf, f))` (correct sign after the
 §3.2 convention fix; unwrap before differentiating for group delay). The `gf`/`fb` methods of
@@ -441,7 +449,7 @@ Optionally, `gammatone_analysis`/`gammatone_cochleagram` accept
 
 `erb`, `freq2erb`, `erb2freq`, `erbfreq_array`, `gammatone_filter`, `gammatone_filterbank`,
 `gammatone_filt`, `gammatone_filt!`, `gammatone_analysis`, `gammatone_cochleagram`,
-`impulse_response`, `summed_resp`, `group_delay`, `envelope_delay`, `gammatone_delay`,
+`gammatone_impulse_response`, `filter_impresp` (in filters.jl), `summed_resp`, `group_delay`, `envelope_delay`, `gammatone_delay`,
 `compensate`, `compensate!` (+ new methods on the existing `filter_coefs`, `filter_resp`,
 `filter_magresp`). `checkdocs=:exports` in `docs/make.jl` means each needs a docstring
 surfaced on a docs page.

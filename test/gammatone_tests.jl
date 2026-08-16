@@ -111,7 +111,7 @@ end
 @testset "impulse response (closed form)" begin
     afs = 16000.0
     gf = gammatone_filter(afs, 1000.0)
-    t, h = impulse_response(gf)
+    t, h = gammatone_impulse_response(gf)
 
     #Time axis and the first terms of h[n] = k⋅binomial(n+3,3)⋅ãⁿ
     @test t[1] == 0
@@ -129,7 +129,7 @@ end
     @test abs((argmax(env) - 1) - npeak_analog) ≤ 3
 
     #dur keyword overrides the length
-    t2, h2 = impulse_response(gf; dur = 0.02)
+    t2, h2 = gammatone_impulse_response(gf; dur = 0.02)
     @test length(h2) == 320
 end
 
@@ -138,14 +138,20 @@ end
     gf = gammatone_filter(afs, 1000.0)
 
     #A unit impulse through the kernel reproduces the exact binomial-form impulse response
-    #(the closed form of impulse_response), the strongest check the kernel can face
+    #(the closed form of gammatone_impulse_response), the strongest check the kernel can face
     N = 400
     e = zeros(N); e[1] = 1.0
     y = gammatone_filt(gf, e)
     @test y isa Vector{ComplexF64}
     @test y[1] == gf.norm
-    t, h = impulse_response(gf; dur = N/afs)
+    t, h = gammatone_impulse_response(gf; dur = N/afs)
     @test y ≈ h rtol = 1e-10
+
+    #The measured forms agree with it too: filter_impresp through the kernel, and through
+    #the expanded rational coefficients via DSP.filt — a third, independent filtering path
+    @test filter_impresp(gf, N) ≈ h rtol = 1e-10
+    @test filter_impresp(filter_coefs(gf), N) ≈ h rtol = 1e-8
+    @test_throws ErrorException filter_impresp(gf, 0)
 
     #Linearity
     x1 = randn(500); x2 = randn(500)
@@ -166,7 +172,7 @@ end
     #own closed form just as exactly
     gf6 = gammatone_filter(afs, 1000.0; order = 6)
     y6 = gammatone_filt(gf6, e)
-    _, h6 = impulse_response(gf6; dur = N/afs)
+    _, h6 = gammatone_impulse_response(gf6; dur = N/afs)
     @test y6 ≈ h6 rtol = 1e-10
 
     #The in-place form matches, requires matching lengths, and allocates nothing after
@@ -235,6 +241,10 @@ end
     Yb = Matrix{ComplexF64}(undef, 30, 500)
     @test gammatone_filt!(Yb, fb, x) == Y
     @test_throws ErrorException gammatone_filt!(Matrix{ComplexF64}(undef, 29, 500), fb, x)
+
+    #Measured bank impulse responses: one channel per row, identical to filtering an
+    #impulse explicitly
+    @test filter_impresp(fb, 100) == gammatone_filt(fb, [1.0; zeros(99)])
 end
 
 @testset "analyses" begin
@@ -317,7 +327,7 @@ end
 
     #filter_resp equals the DTFT of the (fully decayed) impulse response: an independent
     #time-domain path to the same frequency response
-    _, h = impulse_response(gf; dur = 0.25)
+    _, h = gammatone_impulse_response(gf; dur = 0.25)
     for f0 in (250.0, 1000.0, 2000.0)
         θ0 = 2π*f0/afs
         Hdtft = sum(h[n+1]*cis(-θ0*n) for n ∈ 0:length(h)-1)
@@ -442,7 +452,7 @@ end
     @test gf32 isa gammatone_filter{Float32}
     @test gf32.coef isa ComplexF32
     @test abs(gf32.coef - gammatone_filter(16000.0, 1000.0).coef) < 1e-6
-    t32, h32 = impulse_response(gf32)
+    t32, h32 = gammatone_impulse_response(gf32)
     @test eltype(t32) == Float32
     @test eltype(h32) == ComplexF32
 end

@@ -169,3 +169,21 @@ Magnitude response of the filter described by `F::filter_coefs` at each analogue
 of the vector `f` in Hz, given sampling rate `fs`.
 """
 filter_magresp(F::filter_coefs, f::AbstractVector{<:Real}, fs::Real) = map(x->Hmag(F,x,fs),f)
+
+
+"""
+    filter_impresp(F, n)
+
+Impulse response of the filter described by `F::filter_coefs`, measured by running a unit
+impulse through the filter for `n` samples: `h[k]` is the response at sample `k-1`. The
+time-domain complement of [`filter_resp`](@ref)/[`filter_magresp`](@ref) and, like them,
+computed in `Float64` regardless of the filter's storage precision. Methods for the
+gammatone filter and filterbank types measure through their recursive filtering kernel
+instead.
+"""
+function filter_impresp(F::filter_coefs, n::Int)
+    (n ≥ 1) || error("The impulse response needs at least one sample")
+    e = zeros(Float64,n)
+    e[1] = 1.0
+    return filt(F.num,F.den,e)
+end

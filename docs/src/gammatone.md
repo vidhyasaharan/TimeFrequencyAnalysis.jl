@@ -18,7 +18,9 @@ magnitude response exactly at the centre frequency with gain exactly 2, so that 
 input the subband magnitude carries the band's amplitude and the real part is the
 bandpass-filtered signal itself. The impulse response is known in closed form,
 ``h[n] = k\binom{n+γ-1}{γ-1}\,ã^{\,n}`` — that closed form is what
-[`impulse_response`](@ref) evaluates, and the recursive kernel is tested against it.
+[`gammatone_impulse_response`](@ref) evaluates analytically, [`filter_impresp`](@ref)
+measures the same response by running an impulse through the filtering kernel, and the two
+agree to machine precision.
 
 Bandwidths default to the auditory equivalent rectangular bandwidth
 ``\mathrm{ERB}(f_c) = 24.7 + f_c/9.265`` Hz ([`erb`](@ref)); they can be scaled
@@ -84,7 +86,7 @@ Ya = gammatone_analysis(s, fb; align = 0.004)  #aligned complex subbands
 
 ```@docs
 gammatone_filter
-impulse_response
+gammatone_impulse_response
 gammatone_filt
 gammatone_filt!
 gammatone_filterbank

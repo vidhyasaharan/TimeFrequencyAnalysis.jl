@@ -143,18 +143,37 @@ Hz (the sampling rate comes from the filter itself).
 """
 filter_magresp(gf::gammatone_filter, f::AbstractVector{<:Real}) = filter_magresp(filter_coefs(gf),f,gf.fs)
 
+"""
+    filter_impresp(gf::gammatone_filter, n)
+    filter_impresp(fb::gammatone_filterbank, n)
+
+Measured impulse response of the gammatone filter — a unit impulse run through the
+filtering kernel for `n` samples — or of a whole filterbank, one channel per row. The
+single-filter form matches the closed form of [`gammatone_impulse_response`](@ref) to
+machine precision; the bank form is what the alignment measurement
+([`gammatone_delay`](@ref)) runs on.
+"""
+function filter_impresp(gf::gammatone_filter, n::Int)
+    (n ≥ 1) || error("The impulse response needs at least one sample")
+    e = zeros(Float64,n)
+    e[1] = 1.0
+    return gammatone_filt(gf,e)
+end
+
 
 """
-    impulse_response(gf::gammatone_filter; dur = nothing)
+    gammatone_impulse_response(gf::gammatone_filter; dur = nothing)
 
 Impulse response of the gammatone filter as a tuple `(t, h)`: sample times `t` in seconds
-and the complex response `h`, computed from the exact closed form
+and the complex response `h`, computed analytically from the exact closed form
 ``h[n] = k\\binom{n+order-1}{order-1}ã^{\\,n}`` (no filtering involved, so the impulse
-response is available directly from the design). `abs.(h)` is the response envelope and
-`real.(h)` the real gammatone impulse response. The duration defaults to the time the
-envelope takes to decay to −80 dB relative to its peak; pass `dur` in seconds to override.
+response is available directly from the design; [`filter_impresp`](@ref) is the measured
+counterpart, which this closed form matches to machine precision). `abs.(h)` is the
+response envelope and `real.(h)` the real gammatone impulse response. The duration
+defaults to the time the envelope takes to decay to −80 dB relative to its peak; pass
+`dur` in seconds to override.
 """
-function impulse_response(gf::gammatone_filter{T}; dur::Union{Nothing,Real} = nothing) where {T<:AbstractFloat}
+function gammatone_impulse_response(gf::gammatone_filter{T}; dur::Union{Nothing,Real} = nothing) where {T<:AbstractFloat}
     N = (dur === nothing) ? default_ir_length(gf) : max(1,Int(round(convert(Float64,dur)*convert(Float64,gf.fs))))
     γ = gf.order
     #Computed in Float64 (the design precision) and stored at the filter's precision: the
@@ -178,7 +197,7 @@ end
     default_ir_length(gf)
 
 Number of samples after which the impulse-response envelope of `gf` has decayed to −80 dB
-relative to its peak: the default length used by [`impulse_response`](@ref). Found by
+relative to its peak: the default length used by [`gammatone_impulse_response`](@ref). Found by
 walking the envelope ratio ``|h[n+1]|/|h[n]| = λ(n+order)/(n+1)`` outwards from the
 envelope peak.
 """
@@ -352,6 +371,15 @@ function gammatone_filt!(Y::AbstractMatrix{Complex{T}}, fb::gammatone_filterbank
     return Y
 end
 
+#Bank method of filter_impresp (documented with the single-filter method above; defined
+#here because it needs the gammatone_filterbank type)
+function filter_impresp(fb::gammatone_filterbank, n::Int)
+    (n ≥ 1) || error("The impulse response needs at least one sample")
+    e = zeros(Float64,n)
+    e[1] = 1.0
+    return gammatone_filt(fb,e)
+end
+
 
 ## Analyses
 
@@ -478,9 +506,7 @@ function gammatone_delay(fb::gammatone_filterbank{T}; delay::Real = 0.004) where
     nd = Int(round(convert(Float64,delay)*convert(Float64,fb.fs)))
     #Impulse responses over the search window plus two samples, so the slope at a
     #window-edge maximum stays in bounds (the reference implementations do the same)
-    e = zeros(Float64,nd+3)
-    e[1] = 1.0
-    H = gammatone_filt(fb,e)
+    H = filter_impresp(fb,nd+3)
     nch = length(fb.filters)
     delays = Vector{Int}(undef,nch)
     phase_factors = Vector{Complex{T}}(undef,nch)
@@ -586,14 +612,15 @@ end
     envelope_delay(gf::gammatone_filter)
 
 Sample index (0-based, so also the delay in samples) of the maximum of the
-impulse-response envelope of `gf`, measured from the closed-form impulse response. This is
+impulse-response envelope of `gf`, computed from the closed-form impulse response
+([`gammatone_impulse_response`](@ref)). This is
 the per-channel delay that the alignment stage of the Hohmann framework compensates. The
 measured value equals the exact discrete peak position ``⌈(order⋅λ-1)/(1-λ)⌉``, which
 sits a sample or two *before* the analogue prediction ``(order-1)/(2πb)`` seconds — the
 discrete binomial envelope peaks slightly earlier than its continuous-time counterpart.
 """
 function envelope_delay(gf::gammatone_filter)
-    _,h = impulse_response(gf)
+    _,h = gammatone_impulse_response(gf)
     return argmax(abs.(h)) - 1
 end
 
