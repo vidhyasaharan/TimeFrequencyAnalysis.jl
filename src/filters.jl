@@ -172,18 +172,38 @@ filter_magresp(F::filter_coefs, f::AbstractVector{<:Real}, fs::Real) = map(x->Hm
 
 
 """
+    filt(F::filter_coefs, x)
+
+Filter the signal array `x` with the filter described by `F` (DSP.jl's coefficient
+[`filt`] applied to `F.num`/`F.den`; the output element type promotes the coefficient and
+signal types). `filt` is the package's generic filtering verb: the gammatone filter and
+filterbank types provide their own methods, and generic code such as
+[`filter_impresp`](@ref) works through it.
+"""
+filt(F::filter_coefs, x::AbstractVector) = filt(F.num,F.den,x)
+
+"""
+    filt!(y, F::filter_coefs, x)
+
+In-place form of [`filt`](@ref filt(::filter_coefs, ::AbstractVector)): fill `y` with `x`
+filtered by `F` and return it.
+"""
+filt!(y::AbstractVector, F::filter_coefs, x::AbstractVector) = filt!(y,F.num,F.den,x)
+
+
+"""
     filter_impresp(F, n)
 
-Impulse response of the filter described by `F::filter_coefs`, measured by running a unit
-impulse through the filter for `n` samples: `h[k]` is the response at sample `k-1`. The
+Impulse response of the filter `F`, measured by running a unit impulse through it for `n`
+samples: `h[k]` is the response at sample `k-1`. Works for any filter type with a
+[`filt`](@ref filt(::filter_coefs, ::AbstractVector)) method — [`filter_coefs`](@ref),
+[`gammatone_filter`](@ref) and [`gammatone_filterbank`](@ref) (one channel per row). The
 time-domain complement of [`filter_resp`](@ref)/[`filter_magresp`](@ref) and, like them,
-computed in `Float64` regardless of the filter's storage precision. Methods for the
-gammatone filter and filterbank types measure through their recursive filtering kernel
-instead.
+computed in `Float64` regardless of the filter's storage precision.
 """
-function filter_impresp(F::filter_coefs, n::Int)
+function filter_impresp(F, n::Int)
     (n ≥ 1) || error("The impulse response needs at least one sample")
     e = zeros(Float64,n)
     e[1] = 1.0
-    return filt(F.num,F.den,e)
+    return filt(F,e)
 end

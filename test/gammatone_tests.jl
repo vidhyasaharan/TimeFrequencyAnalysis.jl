@@ -141,7 +141,7 @@ end
     #(the closed form of gammatone_impulse_response), the strongest check the kernel can face
     N = 400
     e = zeros(N); e[1] = 1.0
-    y = gammatone_filt(gf, e)
+    y = filt(gf, e)
     @test y isa Vector{ComplexF64}
     @test y[1] == gf.norm
     t, h = gammatone_impulse_response(gf; dur = N/afs)
@@ -155,7 +155,7 @@ end
 
     #Linearity
     x1 = randn(500); x2 = randn(500)
-    @test gammatone_filt(gf, 2.0.*x1 .- 3.0.*x2) ≈ 2.0.*gammatone_filt(gf, x1) .- 3.0.*gammatone_filt(gf, x2)
+    @test filt(gf, 2.0.*x1 .- 3.0.*x2) ≈ 2.0.*filt(gf, x1) .- 3.0.*filt(gf, x2)
 
     #Steady state: a unit tone at fc settles to envelope 1 (peak gain 2, halved because a
     #real tone splits across ±fc); off centre the envelope is |H(f)|/2, cross-validating
@@ -164,14 +164,14 @@ end
     n = 0:7999
     for (f0, expected) in ((1000.0, 1.0), (1500.0, filter_magresp(gf, [1500.0])[1]/2))
         x = cos.(2π*f0.*n./afs)
-        env = abs.(gammatone_filt(gf, x))
+        env = abs.(filt(gf, x))
         @test all(isapprox.(env[6001:8000], expected; rtol = 5e-3))
     end
 
     #A non-default order runs through the general (stage-by-stage) path and must match its
     #own closed form just as exactly
     gf6 = gammatone_filter(afs, 1000.0; order = 6)
-    y6 = gammatone_filt(gf6, e)
+    y6 = filt(gf6, e)
     _, h6 = gammatone_impulse_response(gf6; dur = N/afs)
     @test y6 ≈ h6 rtol = 1e-10
 
@@ -180,20 +180,20 @@ end
     x = randn(1000)
     for g in (gf, gf6)
         yb = Vector{ComplexF64}(undef, 1000)
-        gammatone_filt!(yb, g, x)
-        @test yb ≈ gammatone_filt(g, x)
-        @test (@allocated gammatone_filt!(yb, g, x)) == 0
+        filt!(yb, g, x)
+        @test yb ≈ filt(g, x)
+        @test (@allocated filt!(yb, g, x)) == 0
     end
-    @test_throws ErrorException gammatone_filt!(Vector{ComplexF64}(undef, 5), gf, x)
+    @test_throws ErrorException filt!(Vector{ComplexF64}(undef, 5), gf, x)
 
     #The signal's precision decides the computation: a Float32 signal gives ComplexF32
     #output agreeing with the Float64 path, and a Float32-stored filter applied to a
     #Float64 signal stays Float64
     x32 = randn(Float32, 1000)
-    y32 = gammatone_filt(gf, x32)
+    y32 = filt(gf, x32)
     @test y32 isa Vector{ComplexF32}
-    @test isapprox(y32, gammatone_filt(gf, convert(Vector{Float64}, x32)); rtol = 1e-4)
-    @test gammatone_filt(gammatone_filter(16000f0, 1000f0), randn(100)) isa Vector{ComplexF64}
+    @test isapprox(y32, filt(gf, convert(Vector{Float64}, x32)); rtol = 1e-4)
+    @test filt(gammatone_filter(16000f0, 1000f0), randn(100)) isa Vector{ComplexF64}
 end
 
 @testset "filterbank" begin
@@ -234,17 +234,26 @@ end
     #Bank filtering: one row per channel, each row identical to the single-filter output;
     #the in-place form matches and checks its size
     x = randn(500)
-    Y = gammatone_filt(fb, x)
+    Y = filt(fb, x)
     @test Y isa Matrix{ComplexF64}
     @test size(Y) == (30, 500)
-    @test Y[7,:] == gammatone_filt(fb.filters[7], x)
+    @test Y[7,:] == filt(fb.filters[7], x)
     Yb = Matrix{ComplexF64}(undef, 30, 500)
-    @test gammatone_filt!(Yb, fb, x) == Y
-    @test_throws ErrorException gammatone_filt!(Matrix{ComplexF64}(undef, 29, 500), fb, x)
+    @test filt!(Yb, fb, x) == Y
+    @test_throws ErrorException filt!(Matrix{ComplexF64}(undef, 29, 500), fb, x)
 
     #Measured bank impulse responses: one channel per row, identical to filtering an
     #impulse explicitly
-    @test filter_impresp(fb, 100) == gammatone_filt(fb, [1.0; zeros(99)])
+    @test filter_impresp(fb, 100) == filt(fb, [1.0; zeros(99)])
+
+    #Bank frequency responses: one row per channel, matching the single-filter methods
+    fgrid = collect(500.0:50.0:2000.0)
+    R = filter_resp(fb, fgrid)
+    @test size(R) == (30, length(fgrid))
+    @test R[7,:] == filter_resp(fb.filters[7], fgrid)
+    M = filter_magresp(fb, fgrid)
+    @test M[7,:] == filter_magresp(fb.filters[7], fgrid)
+    @test M ≈ abs.(R)
 end
 
 @testset "analyses" begin
@@ -280,7 +289,7 @@ end
     n = 0:3999
     for k in (5, 15, 25)
         xk = cos.(2π*fbt.fcs[k].*n./16000.0)
-        E = abs.(gammatone_filt(fbt, xk))
+        E = abs.(filt(fbt, xk))
         @test argmax(vec(sum(E[:,2001:4000]; dims = 2))) == k
     end
 
@@ -372,7 +381,7 @@ end
     d = gammatone_delay(fb) #default 4 ms → nd = 64
     @test d.nd == 64
     e = zeros(300); e[1] = 1.0
-    Y = gammatone_filt(fb, e)
+    Y = filt(fb, e)
     Yc = compensate(Y, d)
     @test size(Yc) == size(Y)
     for k in eachindex(fb.filters)

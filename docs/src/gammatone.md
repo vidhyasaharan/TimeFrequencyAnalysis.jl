@@ -35,8 +35,11 @@ spaced on the ERB-rate scale with one channel pinned exactly at a base frequency
 
 ## Analyses
 
-[`gammatone_analysis`](@ref) returns the complex subbands of a signal as a
-[`timefreq`](@ref) with **per-sample time resolution** (no framing), and
+At the array level, signals are filtered with `filt` — DSP.jl's filtering verb, which the
+package extends with methods for its filter and filterbank types (one complex subband per
+row for a bank; `filt!` is the in-place form; the computation runs in the signal's
+precision). On top of that, [`gammatone_analysis`](@ref) returns the complex subbands of a
+signal as a [`timefreq`](@ref) with **per-sample time resolution** (no framing), and
 [`gammatone_cochleagram`](@ref) returns their envelope, floored like [`specgram`](@ref) so
 dB scaling is always well defined. Both follow the package's [`comp()`](@ref comp)
 convention for bare-array output and plot through the existing recipes:
@@ -87,9 +90,9 @@ Ya = gammatone_analysis(s, fb; align = 0.004)  #aligned complex subbands
 ```@docs
 gammatone_filter
 gammatone_impulse_response
-gammatone_filt
-gammatone_filt!
+filt(::gammatone_filter, ::AbstractVector{T}) where T<:AbstractFloat
 gammatone_filterbank
+filt(::gammatone_filterbank, ::AbstractVector{T}) where T<:AbstractFloat
 gammatone_analysis
 gammatone_cochleagram
 group_delay

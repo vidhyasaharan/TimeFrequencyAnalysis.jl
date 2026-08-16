@@ -31,8 +31,8 @@ component array only.
 module TimeFrequencyAnalysis
 
 import DSP                                   #qualified access (DSP.Filters.resample)
-import DSP: amp2db, pow2db                   #imported (not just used) so methods for spectrum/timefreq can be added
-using DSP: hamming, hanning, nextfastfft, filt
+import DSP: amp2db, pow2db, filt, filt!      #imported (not just used) so methods for the package's types can be added
+using DSP: hamming, hanning, nextfastfft
 using FFTW: rfft, plan_rfft, rfftfreq
 using LinearAlgebra: dot
 using Random: MersenneTwister
@@ -53,14 +53,15 @@ export amp2db, pow2db
 #Correlation sequences and short-time correlation functions
 export xcorr, xcorr!, acorr, acorr!, acf, nacf
 
-#Digital filter representation, frequency responses and measured impulse responses
-export filter_coefs, filter_resp, filter_magresp, filter_impresp
+#Digital filter representation, filtering (filt and filt! are DSP.jl functions re-exported
+#with methods for the package's filter types), frequency responses and impulse responses
+export filter_coefs, filt, filt!, filter_resp, filter_magresp, filter_impresp
 
 #Frequency grids and frequency indexing (erb and friends are the auditory ERB scale)
 export logfreq_array, linfreq_array, frqindex, erb, freq2erb, erb2freq, erbfreq_array
 
 #Gammatone filterbank analysis (Hohmann 2002)
-export gammatone_filter, gammatone_impulse_response, gammatone_filt, gammatone_filt!
+export gammatone_filter, gammatone_impulse_response
 export gammatone_filterbank, gammatone_analysis, gammatone_cochleagram
 export group_delay, envelope_delay, summed_resp
 export gammatone_delay, compensate, compensate!

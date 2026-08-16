@@ -421,8 +421,17 @@ envelope_delay(gf)                  -> scalar                   #measured argmax
 *(Post-v1 review: `impulse_response` was renamed `gammatone_impulse_response` — it is the
 analytic, gammatone-specific form — and the measured run-an-impulse-through-the-filter
 functionality was extracted from `gammatone_delay` as the generic `filter_impresp` in
-filters.jl, with methods for `filter_coefs` (via `DSP.filt`), `gammatone_filter` and
-`gammatone_filterbank`.)*
+filters.jl. A second review round made `filt`/`filt!` (DSP.jl's functions, re-exported
+with methods for `filter_coefs`, `gammatone_filter` and `gammatone_filterbank`) the
+primary filtering verbs — `gammatone_filt`/`gammatone_filt!` were removed, and
+`filter_impresp` is now a single generic function over anything with a `filt` method.
+Bank-level `filter_resp`/`filter_magresp` methods (one row per channel) were added at the
+same time. On the dependency question raised then: DSP.jl was assessed (2026-08-16) as
+actively maintained — issues into Jan 2026, docs regenerated May 2026 — and the package
+keeps leaning on it; it is already a hard dependency for `DSP.Filters.resample`, the one
+genuinely hard-to-reimplement piece, while `filt`/`unwrap`/windows are stable and would be
+trivial to replace, and `DSP.filt` doubles as an independent cross-validation path in the
+tests.)*
 
 Phase responses need no dedicated helper: `angle.(filter_resp(gf, f))` (correct sign after the
 §3.2 convention fix; unwrap before differentiating for group delay). The `gf`/`fb` methods of

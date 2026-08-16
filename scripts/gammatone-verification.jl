@@ -105,7 +105,7 @@ step3 = let
     #Kernel impulse output vs closed form (markers subsampled so the overlay stays legible)
     N = 400
     e = zeros(N); e[1] = 1.0
-    y = gammatone_filt(gf, e)
+    y = filt(gf, e)
     t, h = gammatone_impulse_response(gf; dur = N/fs)
     maxerr = maximum(abs.(y .- h))
     p1 = plot(1000 .* t, real.(h); label = "closed form (real part)",
@@ -117,7 +117,7 @@ step3 = let
     #Tone at fc: envelope settles to 1 after the ~group-delay transient
     n = 0:Int(round(0.05*fs))-1
     x = cos.(2π*1000.0.*n./fs)
-    env = abs.(gammatone_filt(gf, x))
+    env = abs.(filt(gf, x))
     p2 = plot(1000 .* n./fs, env; label = "envelope of filtered 1 kHz tone",
               xlabel = "Time (ms)")
     hline!(p2, [1.0]; ls = :dash, label = "unit amplitude")
@@ -127,8 +127,8 @@ step3 = let
     fs8 = 8000.0
     n8 = 0:Int(round(0.5*fs8))-1
     x8 = cos.(2π*440.0.*n8./fs8) .+ 0.5.*cos.(2π*1000.0.*n8./fs8) .+ 0.3.*randn(length(n8))
-    e440 = abs.(gammatone_filt(gammatone_filter(fs8, 440.0), x8))
-    e1k = abs.(gammatone_filt(gammatone_filter(fs8, 1000.0), x8))
+    e440 = abs.(filt(gammatone_filter(fs8, 440.0), x8))
+    e1k = abs.(filt(gammatone_filter(fs8, 1000.0), x8))
     p3 = plot(1000 .* n8./fs8, [e440 e1k];
               label = ["channel at 440 Hz" "channel at 1 kHz"],
               xlabel = "Time (ms)", title = "Two tones (1.0 at 440 Hz, 0.5 at 1 kHz) in noise")
@@ -151,18 +151,14 @@ step4 = let
     fb = gammatone_filterbank(fs)
     f = collect(0.0:4.0:8000.0)
 
-    p1 = plot(; ylims = (-50, 10), ylabel = "Magnitude (dB)", legend = false,
+    p1 = plot(f, amp2db.(filter_magresp(fb, f))'; ylims = (-50, 10),
+              ylabel = "Magnitude (dB)", legend = false,
               title = "Default bank: 30 channels, bw = ERB(fc)")
-    for gf in fb.filters
-        plot!(p1, f, amp2db.(filter_magresp(gf, f)))
-    end
 
     fbc = gammatone_filterbank(fs; bw = 150.0)
-    p2 = plot(; ylims = (-50, 10), xlabel = "Frequency (Hz)", ylabel = "Magnitude (dB)",
+    p2 = plot(f, amp2db.(filter_magresp(fbc, f))'; ylims = (-50, 10),
+              xlabel = "Frequency (Hz)", ylabel = "Magnitude (dB)",
               legend = false, title = "Constant-bandwidth bank: bw = 150 Hz everywhere")
-    for gf in fbc.filters
-        plot!(p2, f, amp2db.(filter_magresp(gf, f)))
-    end
 
     #Linear chirp, 100 Hz → 7 kHz over one second
     t = (0:Int(fs)-1)./fs
@@ -233,7 +229,7 @@ step6 = let
     d = gammatone_delay(fb; delay = 0.004)
     N = Int(round(0.03*fs))
     e = zeros(N); e[1] = 1.0
-    Y = gammatone_filt(fb, e)
+    Y = filt(fb, e)
     Yc = compensate(Y, d)
     t = 1000 .* (0:N-1)./fs
 

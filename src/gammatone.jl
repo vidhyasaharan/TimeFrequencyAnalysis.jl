@@ -143,22 +143,6 @@ Hz (the sampling rate comes from the filter itself).
 """
 filter_magresp(gf::gammatone_filter, f::AbstractVector{<:Real}) = filter_magresp(filter_coefs(gf),f,gf.fs)
 
-"""
-    filter_impresp(gf::gammatone_filter, n)
-    filter_impresp(fb::gammatone_filterbank, n)
-
-Measured impulse response of the gammatone filter — a unit impulse run through the
-filtering kernel for `n` samples — or of a whole filterbank, one channel per row. The
-single-filter form matches the closed form of [`gammatone_impulse_response`](@ref) to
-machine precision; the bank form is what the alignment measurement
-([`gammatone_delay`](@ref)) runs on.
-"""
-function filter_impresp(gf::gammatone_filter, n::Int)
-    (n ≥ 1) || error("The impulse response needs at least one sample")
-    e = zeros(Float64,n)
-    e[1] = 1.0
-    return gammatone_filt(gf,e)
-end
 
 
 """
@@ -217,30 +201,26 @@ end
 ## Filtering kernel
 
 """
-    gammatone_filt(gf::gammatone_filter, x)
+    filt(gf::gammatone_filter, x)
+    filt!(y, gf::gammatone_filter, x)
 
 Filter the real signal array `x` with the gammatone filter `gf` and return the complex
 subband signal: `abs.` of the output is the band envelope and `real.` the
 bandpass-filtered signal (see [`gammatone_filter`](@ref) for why the gain-2 normalisation
 makes both carry the input band's amplitude). The cascade is applied as its `order`
 one-pole recursions ``w_j[n] = w_{j-1}[n] + ãw_j[n-1]``, `order` complex multiply–adds
-per sample.
+per sample. The in-place form fills the complex vector `y` (same length as `x`) and
+returns it, allocation free.
 
 The computation runs in the signal's precision: the output element type is `Complex` of
 the element type of `x`, whatever precision the filter is stored at.
 """
-function gammatone_filt(gf::gammatone_filter, x::AbstractVector{T}) where {T<:AbstractFloat}
+function filt(gf::gammatone_filter, x::AbstractVector{T}) where {T<:AbstractFloat}
     y = Vector{Complex{T}}(undef,length(x))
-    return gammatone_filt!(y,gf,x)
+    return filt!(y,gf,x)
 end
 
-"""
-    gammatone_filt!(y, gf, x)
-
-In-place version of [`gammatone_filt`](@ref): fill the complex vector `y` (same length as
-`x`) with the subband signal and return it. Allocation free.
-"""
-function gammatone_filt!(y::AbstractVector{Complex{T}}, gf::gammatone_filter, x::AbstractVector{<:Real}) where {T<:AbstractFloat}
+function filt!(y::AbstractVector{Complex{T}}, gf::gammatone_filter, x::AbstractVector{<:Real}) where {T<:AbstractFloat}
     length(y) == length(x) || error("Output and input must have the same length")
     ã = convert(Complex{T},gf.coef)
     k = convert(T,gf.norm)
@@ -349,8 +329,8 @@ function gammatone_filterbank(fs::Real; fmin::Real = 70, fmax::Real = min(6700,0
 end
 
 """
-    gammatone_filt(fb::gammatone_filterbank, x)
-    gammatone_filt!(Y, fb, x)
+    filt(fb::gammatone_filterbank, x)
+    filt!(Y, fb::gammatone_filterbank, x)
 
 Filter the real signal array `x` with every channel of the filterbank, returning the
 complex subband matrix with one row per channel: `Y[i,:]` is `x` filtered by
@@ -358,26 +338,46 @@ complex subband matrix with one row per channel: `Y[i,:]` is `x` filtered by
 preallocated matrix `Y` and returns it. As for the single-filter methods, the computation
 runs in the signal's precision.
 """
-function gammatone_filt(fb::gammatone_filterbank, x::AbstractVector{T}) where {T<:AbstractFloat}
+function filt(fb::gammatone_filterbank, x::AbstractVector{T}) where {T<:AbstractFloat}
     Y = Matrix{Complex{T}}(undef,length(fb.filters),length(x))
-    return gammatone_filt!(Y,fb,x)
+    return filt!(Y,fb,x)
 end
 
-function gammatone_filt!(Y::AbstractMatrix{Complex{T}}, fb::gammatone_filterbank, x::AbstractVector{<:Real}) where {T<:AbstractFloat}
+function filt!(Y::AbstractMatrix{Complex{T}}, fb::gammatone_filterbank, x::AbstractVector{<:Real}) where {T<:AbstractFloat}
     size(Y) == (length(fb.filters),length(x)) || error("Output must be (number of channels) × (signal length)")
     for i ∈ eachindex(fb.filters)
-        gammatone_filt!(view(Y,i,:),fb.filters[i],x)
+        filt!(view(Y,i,:),fb.filters[i],x)
     end
     return Y
 end
 
-#Bank method of filter_impresp (documented with the single-filter method above; defined
-#here because it needs the gammatone_filterbank type)
-function filter_impresp(fb::gammatone_filterbank, n::Int)
-    (n ≥ 1) || error("The impulse response needs at least one sample")
-    e = zeros(Float64,n)
-    e[1] = 1.0
-    return gammatone_filt(fb,e)
+"""
+    filter_resp(fb::gammatone_filterbank, f)
+
+Complex frequency responses of every channel of the filterbank at each analogue frequency
+of the vector `f` in Hz, as a matrix with one row per channel: row `k` is
+`filter_resp(fb.filters[k], f)`.
+"""
+function filter_resp(fb::gammatone_filterbank, f::AbstractVector{<:Real})
+    R = Matrix{ComplexF64}(undef,length(fb.filters),length(f))
+    for k ∈ eachindex(fb.filters)
+        R[k,:] = filter_resp(fb.filters[k],f)
+    end
+    return R
+end
+
+"""
+    filter_magresp(fb::gammatone_filterbank, f)
+
+Magnitude responses of every channel of the filterbank at each analogue frequency of the
+vector `f` in Hz, as a matrix with one row per channel.
+"""
+function filter_magresp(fb::gammatone_filterbank, f::AbstractVector{<:Real})
+    M = Matrix{Float64}(undef,length(fb.filters),length(f))
+    for k ∈ eachindex(fb.filters)
+        M[k,:] = filter_magresp(fb.filters[k],f)
+    end
+    return M
 end
 
 
@@ -410,7 +410,7 @@ folds delay and phase compensation into the analysis: the subbands are aligned w
 """
 function gammatone_analysis(::comp, s::signal, fb::gammatone_filterbank; align::Union{Nothing,Real} = nothing)
     check_bank_fs(fb,s)
-    Y = gammatone_filt(fb,s.x)
+    Y = filt(fb,s.x)
     (align === nothing) || compensate!(Y,gammatone_delay(fb;delay = align))
     return Y
 end

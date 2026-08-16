@@ -90,10 +90,17 @@ end
     @test filter_magresp(Fp, fgrid, afs) ≈ abs.(filter_resp(Fp, fgrid, afs))
 end
 
-@testset "impulse responses" begin
-    #filter_impresp measures by running a unit impulse through the filter: FIR
-    #coefficients reproduce themselves, a real one-pole gives 0.9ⁿ, a complex one-pole
-    #gives ãⁿ; like the frequency-response helpers the measurement runs in Float64
+@testset "filt and impulse responses" begin
+    #filt on a filter_coefs is DSP's coefficient filt; the in-place form matches
+    Fap0 = filter_coefs([1], [1.0, -0.9])
+    x = randn(200)
+    @test filt(Fap0, x) == filt(Fap0.num, Fap0.den, x)
+    yb = zeros(200)
+    @test filt!(yb, Fap0, x) == filt(Fap0, x)
+
+    #filter_impresp measures by running a unit impulse through any filter with a filt
+    #method: FIR coefficients reproduce themselves, a real one-pole gives 0.9ⁿ, a complex
+    #one-pole gives ãⁿ; like the frequency-response helpers the measurement runs in Float64
     Ffir = filter_coefs([1.0, 2.0, 3.0], [1.0])
     @test filter_impresp(Ffir, 5) == [1.0, 2.0, 3.0, 0.0, 0.0]
     Fap = filter_coefs([1], [1.0, -0.9])
