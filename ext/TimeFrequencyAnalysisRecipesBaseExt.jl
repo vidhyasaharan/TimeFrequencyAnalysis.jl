@@ -8,7 +8,10 @@ using TimeFrequencyAnalysis
 using TimeFrequencyAnalysis: generate_ticks
 using RecipesBase
 
-#Plot recipe for plotting a spectrogram or other time-frequency representation
+#Plot recipe for plotting a spectrogram or other time-frequency representation.
+#Everything except the series type is a DEFAULT (-->) rather than forced (:=), so a caller can
+#retitle a plot or relabel an axis in the usual way. Forcing the title in particular makes a
+#panel of several timefreqs impossible to label, since every panel would carry the same text.
 @recipe function f(msp::timefreq; nxticks = 8, nyticks = 8)
     frqs = msp.frqs
     time = msp.time
@@ -17,12 +20,12 @@ using RecipesBase
 
     @series begin
         seriestype := :heatmap
-        xticks := xtks
-        yticks := ytks
-        xguide := "Time (sec)"
-        yguide := "Frequency (Hz)"
+        xticks --> xtks
+        yticks --> ytks
+        xguide --> "Time (sec)"
+        yguide --> "Frequency (Hz)"
         if(~isnothing(msp.title))
-            title := msp.title
+            title --> msp.title
         end
         msp.components
     end
@@ -63,36 +66,39 @@ end
 end
 
 
-#Plot recipe for plotting spectra
+#Plot recipe for plotting spectra. As for timefreq and modfreq, only the series type is forced
+#(:=); the title, guide, ticks and the legendless default are defaults (-->) that a caller can
+#override - a spectrum drawn over another series may well want its legend back.
 @recipe function f(spec::spectrum; nticks = 8)
     frqs = spec.frqs
     xtks = generate_ticks(frqs,nticks)
 
-    legend := false
+    legend --> false
 
     @series begin
         seriestype := :line
-        xticks := xtks
-        xguide := "Frequency(Hz)"
+        xticks --> xtks
+        xguide --> "Frequency(Hz)"
         if(~isnothing(spec.title))
-            title := spec.title
+            title --> spec.title
         end
         spec.components
     end
 end
 
 
-#Plot recipe for plotting a time domain signal
+#Plot recipe for plotting a time domain signal. Only the series type is forced; the time axis
+#label and the legendless default can be overridden by the caller.
 @recipe function f(sig::signal)
     x = sig.x
     fs = sig.fs
     t = (0:length(x)-1)/fs
 
-    legend := false
+    legend --> false
 
     @series begin
         seriestype := :line
-        xguide := "Time (secs)"
+        xguide --> "Time (secs)"
         t,x
     end
 end

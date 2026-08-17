@@ -41,6 +41,14 @@ end
     @test t == (0:length(s.x)-1) ./ s.fs
     @test rec[1].plotattributes[:seriestype] == :line
     @test rec[1].plotattributes[:xguide] == "Time (secs)"
+
+    #The axis label and the legendless default are DEFAULTS, not forced: a caller must be able
+    #to relabel the axis and to turn the legend back on (e.g. when overlaying two signals)
+    over = RecipesBase.apply_recipe(Dict{Symbol,Any}(:xguide => "t (ms)", :legend => true), s)
+    @test over[1].plotattributes[:xguide] == "t (ms)"
+    @test over[1].plotattributes[:legend] == true
+    #but the series type is not negotiable - a signal is a line
+    @test RecipesBase.apply_recipe(Dict{Symbol,Any}(:seriestype => :scatter), s)[1].plotattributes[:seriestype] == :line
 end
 
 @testset "spectrum recipe" begin
@@ -55,6 +63,19 @@ end
     #The nticks attribute controls the tick count
     rec4 = RecipesBase.apply_recipe(Dict{Symbol,Any}(:nticks => 4), spec)
     @test rec4[1].plotattributes[:xticks] == TimeFrequencyAnalysis.generate_ticks(spec.frqs, 4)
+
+    #The title, guide, ticks and legendless default are DEFAULTS, not forced: a caller must be
+    #able to retitle a plot, relabel an axis and turn the legend back on
+    titled = spectrum(spec.signal, spec.components, spec.frqs, "Magnitude Spectrum")
+    over = RecipesBase.apply_recipe(Dict{Symbol,Any}(:title => "panel a", :xguide => "f (Hz)",
+                                                     :legend => true), titled)
+    @test over[1].plotattributes[:title] == "panel a"
+    @test over[1].plotattributes[:xguide] == "f (Hz)"
+    @test over[1].plotattributes[:legend] == true
+    #an explicit tick spec also wins over the index-space default
+    @test RecipesBase.apply_recipe(Dict{Symbol,Any}(:xticks => ([1,2], ["a","b"])), spec)[1].plotattributes[:xticks] == ([1,2], ["a","b"])
+    #but the series type is not negotiable - a spectrum is a line
+    @test RecipesBase.apply_recipe(Dict{Symbol,Any}(:seriestype => :heatmap), spec)[1].plotattributes[:seriestype] == :line
 end
 
 @testset "timefreq recipe" begin
@@ -68,6 +89,19 @@ end
     @test rec[1].plotattributes[:seriestype] == :heatmap
     @test rec[1].plotattributes[:xticks] == TimeFrequencyAnalysis.generate_ticks(tf.time, 8)
     @test rec[1].plotattributes[:yticks] == TimeFrequencyAnalysis.generate_ticks(tf.frqs, 8)
+
+    #The object's title and guides are DEFAULTS, not forced: a caller must be able to retitle a
+    #plot and relabel an axis. Without this a panel of several spectrograms cannot be labelled at
+    #all, since every panel would carry the object's own title.
+    titled = timefreq(tf.frames, tf.components, tf.frqs, "Spectrogram")
+    over = RecipesBase.apply_recipe(Dict{Symbol,Any}(:title => "panel a", :xguide => "t (ms)"), titled)
+    @test over[1].plotattributes[:title] == "panel a"
+    @test over[1].plotattributes[:xguide] == "t (ms)"
+    @test over[1].plotattributes[:yguide] == "Frequency (Hz)"   #untouched default survives
+    #an explicit tick spec also wins over the index-space default
+    @test RecipesBase.apply_recipe(Dict{Symbol,Any}(:yticks => ([1,2], ["a","b"])), tf)[1].plotattributes[:yticks] == ([1,2], ["a","b"])
+    #but the series type is not negotiable - a timefreq is a heatmap
+    @test RecipesBase.apply_recipe(Dict{Symbol,Any}(:seriestype => :line), tf)[1].plotattributes[:seriestype] == :heatmap
 end
 
 
