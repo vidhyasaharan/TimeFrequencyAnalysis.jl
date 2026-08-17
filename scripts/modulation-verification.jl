@@ -388,3 +388,156 @@ step4c = let
     keep(plot(plin, pdb; layout = (1,2), size = (1100, 460)), "step4c-element-ops")
 end
 display(step4c)
+
+
+## ---------------------------------------------------------------------------------------
+## Step 5 — power_envelope
+## ---------------------------------------------------------------------------------------
+
+const vfs = 3125.0
+vbank(; kwargs...) = gammatone_filterbank(vfs; fmin = 100, fmax = 400, base_frq = 200,
+                                          filters_per_erb = 2, bw_scale = 2, kwargs...)
+vam(A, m, fc, fm, dur) = (t = (0:round(Int, dur*vfs)-1)./vfs;
+                          A.*(1 .+ m.*cos.(2π*fm.*t)).*cos.(2π*fc.*t))
+
+#5a. Does the envelope actually track the waveform? The gammatone channel is analytic, so the
+#envelope is |y| directly - no rectify-and-smooth, no Hilbert transform. With the gain-2
+#normalisation it comes out in the units of the signal: an amplitude envelope reads A(1+m cos)
+#and a power envelope its square. Both are drawn against the truth, so a gain error of any kind
+#shows up as a gap rather than having to be inferred from a number.
+step5a = let
+    A, m, fc, fm = 1.0, 0.5, 200.0, 7.0
+    s = signal(vam(A, m, fc, fm, 20.0), vfs)
+    fb = vbank()
+    k = frqindex(fc, fb.fcs)
+
+    ta = power_envelope(s, fb; envelope = :amplitude, fs_env = vfs)   #undecimated, to overlay on the waveform
+    tp = power_envelope(s, fb; envelope = :power, fs_env = vfs)
+    win = 1:round(Int, 2.5*vfs/fm)                                    #two and a half modulation periods
+    t = ta.time[win]
+
+    #The time axis is the OUTPUT sample's time, as in gammatone_analysis, so the analysis delay
+    #is still in it: an event shows up later by the alignment target nd, plus the difference
+    #between the filter's group and envelope delays. Shift the truth by that to compare shapes.
+    lagsamp = gammatone_delay(fb; delay = :auto).nd +
+              group_delay(fb.filters[k]) - envelope_delay(fb.filters[k])
+    truth = A.*(1 .+ m.*cos.(2π*fm.*(t .- lagsamp/vfs)))
+
+    p1 = plot(t, real(vam(A, m, fc, fm, 20.0)[round.(Int, t.*vfs) .+ 1]);
+              lc = :grey80, lw = 0.6, label = "signal", legend = :topright,
+              ylabel = "amplitude", title = "amplitude envelope rides the peaks (gain-2: reads A, not A/2 or 2A)",
+              titlefontsize = 9)
+    plot!(p1, t, ta.components[k, win]; lc = :crimson, lw = 2, label = "|y| envelope")
+    plot!(p1, t, truth; lc = :black, ls = :dash, lw = 1.5, label = "A(1 + m cos), delayed $(round(lagsamp, digits = 1)) samples")
+
+    p2 = plot(t, tp.components[k, win]; lc = :steelblue, lw = 2, label = "|y|² envelope",
+              legend = :topright, xlabel = "Time (s)", ylabel = "power",
+              title = "power envelope = the square: mean A²(1+m²/2), swings (1∓m)²",
+              titlefontsize = 9)
+    plot!(p2, t, truth.^2; lc = :black, ls = :dash, lw = 1.5, label = "A²(1 + m cos)², delayed")
+    hline!(p2, [A^2*(1 + m^2/2)]; lc = :green, ls = :dot, label = "mean A²(1+m²/2)")
+    hline!(p2, [A^2*(1-m)^2, A^2*(1+m)^2]; lc = :orange, ls = :dot, label = "A²(1∓m)²")
+    keep(plot(p1, p2; layout = (2,1), size = (950, 640)), "step5a-envelope-tracks-waveform")
+end
+display(step5a)
+
+#5b. Decimation is only legitimate because the resampler lowpasses before it decimates. Left: the
+#envelope spectrum before and after decimating to 125 Hz - they lie on top of each other through
+#the passband. Right: the trap it avoids. A 100 Hz modulation is above the 62.5 Hz envelope
+#Nyquist, so a naive take-every-Mth-sample folds it to |125-100| = 25 Hz and invents a line that
+#is not in the signal; the anti-aliased path leaves nothing there. The dashed marker is where the
+#alias would sit.
+step5b = let
+    fb1k = gammatone_filterbank(vfs, [1000.0]; bw = [400.0])
+    fs_env = vfs/25
+
+    slow = signal(vam(1.0, 0.5, 1000.0, 25.0, 40.0), vfs)
+    e_full = power_envelope(comp(), slow, fb1k; fs_env = vfs, trim = false)[1,:]
+    e_dec  = power_envelope(comp(), slow, fb1k; fs_env)[1,:]
+    Pf, ff = welch_psd(comp(), e_full, vfs; frame_dur = 4.0)
+    Pd, fd = welch_psd(comp(), e_dec, fs_env; frame_dur = 4.0)
+    pl = plot(ff, pow2db.(Pf); lc = :grey60, lw = 1, label = "envelope at $(vfs) Hz",
+              xlims = (0, 62.5), xlabel = "Modulation Rate (Hz)", ylabel = "Power (dB)",
+              title = "decimation preserves the passband", titlefontsize = 9, legend = :topright,
+              left_margin = 8Plots.mm, bottom_margin = 5Plots.mm)
+    plot!(pl, fd, pow2db.(Pd); lc = :crimson, lw = 1.6, ls = :dash, label = "decimated to $(fs_env) Hz")
+
+    fast = signal(vam(1.0, 0.5, 1000.0, 100.0, 40.0), vfs)
+    e_naive = power_envelope(comp(), fast, fb1k; fs_env = vfs, trim = false)[1, 1:25:end]  #no AA filter
+    e_aa    = power_envelope(comp(), fast, fb1k; fs_env)[1,:]                              #resampled
+    Pn, fn = welch_psd(comp(), e_naive, fs_env; frame_dur = 4.0)
+    Pa, fa = welch_psd(comp(), e_aa, fs_env; frame_dur = 4.0)
+    pr = plot(fn, pow2db.(Pn); lc = :orange, lw = 1.6, label = "naive: every 25th sample",
+              xlims = (0, 62.5), xlabel = "Modulation Rate (Hz)", ylabel = "Power (dB)",
+              title = "100 Hz modulation: the alias that anti-aliasing removes",
+              titlefontsize = 9, legend = :topright,
+              left_margin = 8Plots.mm, bottom_margin = 5Plots.mm)
+    plot!(pr, fa, pow2db.(Pa); lc = :seagreen, lw = 1.6, label = "power_envelope (anti-aliased)")
+    vline!(pr, [25.0]; lc = :red, ls = :dash, label = "|125 − 100| = 25 Hz")
+    keep(plot(pl, pr; layout = (1,2), size = (1150, 480)), "step5b-decimation-and-aliasing")
+end
+display(step5b)
+
+#5c. What alignment is for. A click through the bank, drawn as channels x time. Uncompensated,
+#each channel responds at its own delay and the click smears into a diagonal sweep - low
+#channels are slowest. Compensated, every channel peaks at one instant and the click is a single
+#vertical ridge. Per-channel modulation spectra do not care (|DFT|^2 is shift invariant), but
+#anything comparing channels does, which is why align defaults to :auto.
+step5c = let
+    fb = gammatone_filterbank(vfs; fmin = 80, fmax = 1200, base_frq = 308, filters_per_erb = 2, bw_scale = 2)
+    click = zeros(2000); click[400] = 1.0
+    s = signal(click, vfs)
+
+    E0 = power_envelope(comp(), s, fb; fs_env = vfs, trim = false, align = nothing)
+    E1 = power_envelope(comp(), s, fb; fs_env = vfs, trim = false)
+    lead = compensation_lead(gammatone_delay(fb; delay = :auto))
+    win = 350:600
+    ytk = TimeFrequencyAnalysis.generate_ticks(fb.fcs, 6)
+
+    p0 = heatmap(amp2db.(E0[:, win] ./ maximum(E0)); c = :viridis, clims = (-40, 0), colorbar = false,
+                 yticks = ytk, xguide = "sample", yguide = "Carrier Frequency (Hz)",
+                 title = "align = nothing: each channel at its own delay", titlefontsize = 9,
+                 left_margin = 8Plots.mm, bottom_margin = 5Plots.mm)
+    p1 = heatmap(amp2db.(E1[:, win] ./ maximum(E1)); c = :viridis, clims = (-40, 0), colorbar = false,
+                 yticks = ytk, xguide = "sample", yguide = "Carrier Frequency (Hz)",
+                 title = "align = :auto: one instant, lead of $lead already dropped", titlefontsize = 9,
+                 left_margin = 8Plots.mm, bottom_margin = 5Plots.mm)
+
+    sp0 = [argmax(view(E0, k, :)) for k in eachindex(fb.fcs)]
+    sp1 = [argmax(view(E1, k, :)) for k in eachindex(fb.fcs)]
+    pp = plot(sp0, 1:length(fb.fcs); lc = :orange, lw = 2, label = "align = nothing",
+              xlabel = "sample of peak", ylabel = "channel", legend = :bottomright,
+              title = "peak instant per channel: spread $(maximum(sp0)-minimum(sp0)) → $(maximum(sp1)-minimum(sp1)) samples",
+              titlefontsize = 9)
+    plot!(pp, sp1, 1:length(fb.fcs); lc = :seagreen, lw = 2, label = "align = :auto")
+    keep(plot(p0, p1, pp; layout = @layout([a b; c]), size = (1100, 760)), "step5c-alignment")
+end
+display(step5c)
+
+#5d. The rule that decides how much of the modulation axis is real: a channel of bandwidth B
+#passes both sidebands fc +/- f_m only while 2*f_m is inside B, so a modulation at f_m simply is
+#not visible in a channel much narrower than 2*f_m. No citation for this was found in the
+#literature, so it is measured here rather than asserted - and it is what the bandwidth floor in
+#SONAR's carrier grid rests on.
+step5d = let
+    fc, m = 500.0, 0.5
+    ratios = exp2.(range(-1.5, 3.5; length = 21))         #B/f_m from 0.35 to about 11
+    p = plot(; xscale = :log2, xlabel = "channel bandwidth B / modulation rate fₘ",
+             ylabel = "recovered modulation depth", legend = :bottomright, size = (950, 520),
+             title = "a modulation at fₘ needs a channel of bandwidth B ≳ 2fₘ — and the curve depends only on B/fₘ",
+             titlefontsize = 10, left_margin = 8Plots.mm, bottom_margin = 5Plots.mm)
+    for (fm, col) in ((5.0, :navy), (10.0, :seagreen), (20.0, :crimson))
+        s = signal(vam(1.0, m, fc, fm, 20.0), vfs)
+        d = Float64[]
+        for r in ratios
+            fb = gammatone_filterbank(vfs, [fc]; bw = [r*fm])
+            e = power_envelope(comp(), s, fb; envelope = :amplitude, max_mod_frq = 3fm)[1,:]
+            push!(d, (maximum(e) - minimum(e))/(maximum(e) + minimum(e)))
+        end
+        plot!(p, ratios, d./m; lc = col, lw = 2, marker = :circle, ms = 2.5, label = "fₘ = $fm Hz")
+    end
+    vline!(p, [2.0]; lc = :red, ls = :dash, lw = 2, label = "B = 2fₘ")
+    hline!(p, [1.0]; lc = :grey, ls = :dot, label = "true depth")
+    keep(p, "step5d-bandwidth-rule")
+end
+display(step5d)

@@ -88,17 +88,23 @@ $(_RESAMPLE_PHASES) branches, and `fs_new/fs` is met only approximately.
 - `rel_bw` : Relative bandwidth of the anti-alias filter [Default = 1]
 - `attenuation` : Stopband attenuation of the anti-alias filter in dB [Default = 60]
 
+Resampling to the rate the data already has is a copy: there is nothing to filter, and the
+resampler cannot design a filter for a rate of 1 in any case (its cutoff would sit exactly at
+Nyquist).
+
 # Throws
 - `ErrorException` if either sampling rate is not positive.
 """
 function resample(s::signal{T}, fs_new::Number; rel_bw::Real = 1, attenuation::Real = 60) where {T<:AbstractFloat}
     rate = _resample_rate(s.fs, fs_new)
+    (rate == 1) && return signal(copy(s.x), fs_new)
     h = _resample_taps(T, rate, rel_bw, attenuation)
     return signal(_apply_resample(s.x, rate, h), fs_new)
 end
 
 function resample(x::AbstractVector{T}, fs::Real, fs_new::Real; rel_bw::Real = 1, attenuation::Real = 60) where {T<:AbstractFloat}
     rate = _resample_rate(fs, fs_new)
+    (rate == 1) && return copy(x)
     h = _resample_taps(T, rate, rel_bw, attenuation)
     return _apply_resample(x, rate, h)
 end
@@ -106,6 +112,7 @@ end
 function resample(X::AbstractArray{T}, fs::Real, fs_new::Real; dims::Int = 2, rel_bw::Real = 1, attenuation::Real = 60) where {T<:AbstractFloat}
     (1 ≤ dims ≤ ndims(X)) || error("dims = $dims is not an axis of a $(ndims(X))-dimensional array")
     rate = _resample_rate(fs, fs_new)
+    (rate == 1) && return copy(X)
     h = _resample_taps(T, rate, rel_bw, attenuation)
     return _apply_resample(X, rate, h, dims)
 end

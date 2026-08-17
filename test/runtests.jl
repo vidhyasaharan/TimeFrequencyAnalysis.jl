@@ -33,6 +33,9 @@ include("setup.jl")
     @testset "gammatone" begin
         include("gammatone_tests.jl")
     end
+    @testset "modulation" begin
+        include("modulation_tests.jl")
+    end
     @testset "element ops" begin
         include("element_ops_tests.jl")
     end

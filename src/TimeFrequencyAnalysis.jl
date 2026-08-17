@@ -66,6 +66,9 @@ export gammatone_filterbank, gammatone_analysis, gammatone_cochleagram
 export group_delay, envelope_delay, summed_resp
 export gammatone_delay, default_align, compensate, compensate!, compensation_lead
 
+#Modulation analysis (envelopes and modulation spectra)
+export power_envelope, startup_samples
+
 #Sampling helpers
 export time2nsamples, resample
 
@@ -83,6 +86,7 @@ include("element_ops.jl")       #log/log10/amp2db/pow2db methods for spectrum an
 include("correlations.jl")      #xcorr(!), acorr(!), acf, nacf
 include("filters.jl")           #filter_coefs, filter_resp, filter_magresp and helpers
 include("gammatone.jl")         #gammatone_filter(bank), gammatone_filt(!), analyses, alignment and helpers
+include("modulation.jl")        #power_envelope, modulation_spectrum
 include("plots_support.jl")     #generate_ticks (the recipes live in the RecipesBase extension)
 
 end # module
