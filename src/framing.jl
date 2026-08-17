@@ -26,16 +26,32 @@ end
 
 
 """
+    enframe(f::framed_signal)
+
+Generate a matrix with each column storing one frame of the [`framed_signal`](@ref) `f`,
+i.e. materialise every frame that [`view_frame`](@ref) can produce. The matrix holds all
+`f.num_frames` frames, so the trailing ones that extend past the end of the signal are zero
+padded exactly as `view_frame` returns them.
+"""
+function enframe(f::framed_signal{T}) where {T<:AbstractFloat}
+    y = Matrix{T}(undef,f.frame_length,f.num_frames)
+    for i ∈ 1:f.num_frames
+        y[:,i] = view_frame(f, i)
+    end
+    return y
+end
+
+"""
     enframe(x, frame_size, frame_shift)
 
 Generate a matrix with each column storing one frame of length `frame_size` samples from the
-signal in array `x`, with consecutive frames separated by `frame_shift` samples.
+signal in array `x`, with consecutive frames separated by exactly `frame_shift` samples.
+Frames extending past the end of `x` are zero padded, as in [`view_frame`](@ref).
 """
 function enframe(x::AbstractVector{T}, frame_size::Int, frame_shift::Int) where {T<:AbstractFloat}
-    num_frames = number_signal_frames(x, frame_size, frame_shift)
-    y = Matrix{T}(undef,frame_size,num_frames)
-    enframe!(y, x)
-    return y
+    #Framing a signal read at 1 Hz makes a duration in seconds and a count in samples the
+    #same number, so the geometry here is the one framed_signal derives, not a second copy
+    return enframe(framed_signal(signal(x,one(T)), frame_size, frame_shift))
 end
 
 """
@@ -43,22 +59,20 @@ end
 
 Generate a matrix with each column storing one frame of duration `frame_dur` seconds from
 the signal in array `x` with sampling rate `fs`, with consecutive frames separated by
-`frame_shift_dur` seconds.
+`frame_shift_dur` seconds. Frames extending past the end of `x` are zero padded, as in
+[`view_frame`](@ref).
 """
-function enframe(x::AbstractVector{<:AbstractFloat}, fs::Real, frame_dur::Real, frame_shift_dur::Real)
-    frame_size = time2nsamples(frame_dur,fs)
-    frame_shift = time2nsamples(frame_shift_dur,fs)
-    return enframe(x,frame_size, frame_shift)
-end
+enframe(x::AbstractVector{<:AbstractFloat}, fs::Real, frame_dur::Real, frame_shift_dur::Real) = enframe(framed_signal(signal(x,fs), frame_dur, frame_shift_dur))
 
 """
     enframe(s::signal, frame_dur, frame_shift_dur)
 
 Generate a matrix with each column storing one frame of duration `frame_dur` seconds from
 the [`signal`](@ref) `s`, with consecutive frames separated by `frame_shift_dur`
-seconds.
+seconds. Frames extending past the end of the signal are zero padded, as in
+[`view_frame`](@ref).
 """
-enframe(s::signal, frame_dur::Real, frame_shift_dur::Real) = enframe(s.x, s.fs, frame_dur, frame_shift_dur)
+enframe(s::signal, frame_dur::Real, frame_shift_dur::Real) = enframe(framed_signal(s, frame_dur, frame_shift_dur))
 
 
 """
