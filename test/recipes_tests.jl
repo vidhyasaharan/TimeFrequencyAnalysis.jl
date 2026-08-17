@@ -69,3 +69,61 @@ end
     @test rec[1].plotattributes[:xticks] == TimeFrequencyAnalysis.generate_ticks(tf.time, 8)
     @test rec[1].plotattributes[:yticks] == TimeFrequencyAnalysis.generate_ticks(tf.frqs, 8)
 end
+
+
+@testset "modfreq recipe" begin
+    #A modfreq must plot as a single heatmap series of its component matrix in index space, with
+    #modulation rate on x and carrier frequency on y. The orientation is the part worth pinning:
+    #a transposed heatmap still looks like a plausible modulation spectrum, so an asymmetric
+    #component matrix is used and the axes checked against the right field.
+    ncar, nmod = 5, 9
+    C = [10.0k + j for k in 1:ncar, j in 1:nmod]
+    fcs = [80.0, 120.0, 180.0, 270.0, 405.0]
+    mfr = collect(range(0.0, 40.0; length = nmod))
+    ms = modfreq(C, fcs, mfr, 2 .*erb.(fcs), 312.5, 10.0, 11, "Modulation Spectrum")
+
+    rec = RecipesBase.apply_recipe(Dict{Symbol,Any}(), ms)
+    @test length(rec) == 1
+    @test rec[1].args == (ms.components,)
+    @test rec[1].plotattributes[:seriestype] == :heatmap
+    @test rec[1].plotattributes[:xticks] == TimeFrequencyAnalysis.generate_ticks(ms.mod_frqs, 8)
+    @test rec[1].plotattributes[:yticks] == TimeFrequencyAnalysis.generate_ticks(ms.fcs, 8)
+    @test rec[1].plotattributes[:xguide] == "Modulation Rate (Hz)"
+    @test rec[1].plotattributes[:yguide] == "Carrier Frequency (Hz)"
+    @test rec[1].plotattributes[:title] == "Modulation Spectrum"
+
+    #The two tick counts are independently controllable, as for timefreq
+    rec2 = RecipesBase.apply_recipe(Dict{Symbol,Any}(:nxticks => 4, :nyticks => 3), ms)
+    @test rec2[1].plotattributes[:xticks] == TimeFrequencyAnalysis.generate_ticks(ms.mod_frqs, 4)
+    @test rec2[1].plotattributes[:yticks] == TimeFrequencyAnalysis.generate_ticks(ms.fcs, 3)
+
+    #The axes are NOT interchangeable: the y ticks must come from fcs, never from mod_frqs
+    @test rec[1].plotattributes[:yticks] != TimeFrequencyAnalysis.generate_ticks(ms.mod_frqs, 8)
+
+    #A titleless modfreq emits no title attribute at all, as the timefreq recipe does
+    plain = modfreq(C, fcs, mfr, 2 .*erb.(fcs), 312.5, 10.0, 11)
+    @test !haskey(RecipesBase.apply_recipe(Dict{Symbol,Any}(), plain)[1].plotattributes, :title)
+
+    #A dB view is still a modfreq and still plots as one
+    @test RecipesBase.apply_recipe(Dict{Symbol,Any}(), pow2db(ms))[1].plotattributes[:seriestype] == :heatmap
+
+    #The object's title and guides are DEFAULTS, not forced: a caller must be able to retitle a
+    #plot and relabel an axis. Without this a panel of several modfreqs cannot be labelled at all,
+    #since every panel would carry the object's own title.
+    over = RecipesBase.apply_recipe(Dict{Symbol,Any}(:title => "viridis", :xguide => "fₘ (Hz)"), ms)
+    @test over[1].plotattributes[:title] == "viridis"
+    @test over[1].plotattributes[:xguide] == "fₘ (Hz)"
+    @test over[1].plotattributes[:yguide] == "Carrier Frequency (Hz)"   #untouched default survives
+    #an explicit tick spec also wins over the index-space default
+    @test RecipesBase.apply_recipe(Dict{Symbol,Any}(:xticks => ([1,2], ["a","b"])), ms)[1].plotattributes[:xticks] == ([1,2], ["a","b"])
+    #but the series type is not negotiable - a modfreq is a heatmap
+    @test RecipesBase.apply_recipe(Dict{Symbol,Any}(:seriestype => :line), ms)[1].plotattributes[:seriestype] == :heatmap
+
+    #The colormap defaults to a sequential, monotonically lightening one rather than to whatever
+    #the plotting package happens to use, since a modulation spectrum is a magnitude and a rainbow
+    #map would render the noise pedestal as brightly as the lines. It is a default, so a caller
+    #can still pick another.
+    @test rec[1].plotattributes[:seriescolor] == :ice
+    @test RecipesBase.apply_recipe(Dict{Symbol,Any}(:seriescolor => :magma), ms)[1].plotattributes[:seriescolor] == :magma
+    @test RecipesBase.apply_recipe(Dict{Symbol,Any}(:c => :greys), ms)[1].plotattributes[:c] == :greys
+end

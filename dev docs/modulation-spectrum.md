@@ -338,8 +338,17 @@ sitting on a floor that should not be there.
      signal with AM sidebands: the sideband spacing visible in the spectrogram must equal the
      modulation rate the modulation spectrum reports. This cross-check is what will be run on real
      SONAR beams at acceptance, so it is worth having working on synthetic data first.
-7. **Plot recipe** in `ext/`. Tests in `recipes_tests.jl`. *(The step-4 and step-6 plots above
-   assume it; until it lands they run against `heatmap(ms.components)` directly.)*
+7. **Plot recipe** in `ext/`. Tests in `recipes_tests.jl`. **DONE.**
+
+   **Verify visually:**
+   - *`plot(ms)` with nothing set by hand.* Straight from `modulation_spectrum` on the SONAR
+     default bank (116 ERB-spaced carriers over 77–1232 Hz): index-space heatmap so no carrier is
+     crushed, ticks carrying true frequencies, both axes named, title taken from the object. This
+     is the check that the recipe has actually replaced the manual `heatmap` scaffolding the
+     step-4 and step-6 figures were built with.
+   - *The knobs, and that a dB view survives.* `plot(pow2db(ms))` alongside `plot(ms)`, with
+     `nxticks`/`nyticks` set independently — the two axes have very different natural densities
+     (116 carriers against 1563 modulation bins), so one tick count for both would not do.
 8. **Finish**: `float32_tests.jl` block; `docs/src/modulation.md` + `make.jl`; `modfreq` in
    `types.md`; `welch_psd` in `spectral.md`; `default_align`/`compensation_lead` in `gammatone.md`;
    `modfreq` bullet in `plotting.md`; module docstring; version 0.4.0.

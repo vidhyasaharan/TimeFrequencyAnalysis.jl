@@ -29,6 +29,40 @@ using RecipesBase
 end
 
 
+#Plot recipe for plotting a modulation spectrum. Same index-space heatmap as timefreq, since the
+#carrier axis is usually ERB or log spaced and would otherwise crush its low channels into the
+#bottom of the image; rows are carriers and columns modulation rates, matching the field order.
+#Everything except the series type is a DEFAULT (-->) rather than forced (:=), so a caller can
+#retitle a plot, relabel an axis or choose another colormap in the usual way. Forcing the title in
+#particular makes a panel of several modfreqs impossible to label, since every panel would carry
+#the same text.
+#
+#The default colormap is :ice. A modulation spectrum is a magnitude, so the map has to be
+#sequential - one hue, dark to light, with perceived lightness rising monotonically so that equal
+#steps in the data look like equal steps on the page. :ice runs near-black to white through blue
+#(L* 2 to 98, monotonic), which leaves the noise floor dark and lets only the modulation lines
+#carry brightness. A rainbow map would put its brightest colour in the middle of the range, so the
+#noise pedestal would compete with the lines for attention - see scripts/modulation-verification.jl
+#section 7d/7e, which measures this.
+@recipe function f(ms::modfreq; nxticks = 8, nyticks = 8)
+    xtks = generate_ticks(ms.mod_frqs,nxticks)
+    ytks = generate_ticks(ms.fcs,nyticks)
+
+    @series begin
+        seriestype := :heatmap
+        seriescolor --> :ice
+        xticks --> xtks
+        yticks --> ytks
+        xguide --> "Modulation Rate (Hz)"
+        yguide --> "Carrier Frequency (Hz)"
+        if(~isnothing(ms.title))
+            title --> ms.title
+        end
+        ms.components
+    end
+end
+
+
 #Plot recipe for plotting spectra
 @recipe function f(spec::spectrum; nticks = 8)
     frqs = spec.frqs

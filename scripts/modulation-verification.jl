@@ -672,3 +672,173 @@ step6d = let
     keep(plot(ps, pm; layout = (2,1), size = (950, 640)), "step6d-spectrogram-cross-check")
 end
 display(step6d)
+
+
+## ---------------------------------------------------------------------------------------
+## Step 7 — the modfreq plot recipe
+## ---------------------------------------------------------------------------------------
+
+#7a. The recipe's real job: plot(ms) straight from modulation_spectrum, with nothing set by hand.
+#Everything the earlier sections built manually - index-space heatmap so the 116 ERB-spaced
+#carriers stay evenly spaced on screen, tick labels carrying the true frequencies, both axes
+#named, the title from the object - now comes from the recipe. The bank here is the SONAR default
+#(ERB grid over 77-1232 Hz at 8 filters per ERB), so this is what a beam will look like.
+step7a = let
+    fb = gammatone_filterbank(vfs; fmin = 77, fmax = 1232, base_frq = 308,
+                              filters_per_erb = 8, bw_scale = 2)
+    t = (0:round(Int, 120vfs)-1)./vfs
+    #A shaft line at 4.7 Hz with harmonics on a 300 Hz carrier, a blade line at 23.5 Hz on 800 Hz
+    shaft = (1 .+ 0.4cos.(2π*4.7 .*t) .+ 0.2cos.(2π*9.4 .*t) .+ 0.1cos.(2π*14.1 .*t)).*cos.(2π*300 .*t)
+    blade = (1 .+ 0.5cos.(2π*23.5 .*t)).*cos.(2π*800 .*t)
+    s = signal(shaft .+ blade .+ 0.05.*randn(length(t)), vfs)
+
+    ms = modulation_spectrum(s, fb; dc = :remove, frame_dur = 10.0)
+    println("step7a: $(length(ms.fcs)) carriers x $(length(ms.mod_frqs)) modulation bins, " *
+            "fs_env = $(ms.fs_env) Hz, $(ms.nframes) frames averaged")
+
+    #Everything below is the recipe; only the colour limits and the modulation range are ours
+    jmax = frqindex(40.0, ms.mod_frqs)
+    view = modfreq(ms.components[:, 1:jmax], ms.fcs, ms.mod_frqs[1:jmax], ms.bws,
+                   ms.fs_env, ms.frame_dur, ms.nframes, ms.title)
+    p = plot(pow2db(view); clims = (-70, -10), size = (1000, 560),   #colormap: the recipe's default
+             left_margin = 10Plots.mm, bottom_margin = 6Plots.mm)
+    keep(p, "step7a-recipe-straight-from-modulation-spectrum")
+end
+display(step7a)
+
+#7b. The knobs the recipe exposes, and that a dB view stays a modfreq. pow2db returns a modfreq
+#with its axes intact, so it plots through the same recipe; nxticks and nyticks are independent,
+#which matters because the two axes have very different natural densities - 116 carriers against
+#1563 modulation bins.
+step7b = let
+    fb = gammatone_filterbank(vfs; fmin = 77, fmax = 1232, base_frq = 308,
+                              filters_per_erb = 4, bw_scale = 2)
+    t = (0:round(Int, 60vfs)-1)./vfs
+    s = signal((1 .+ 0.5cos.(2π*7 .*t)).*cos.(2π*400 .*t) .+ 0.05.*randn(length(t)), vfs)
+    ms = modulation_spectrum(s, fb; dc = :remove, frame_dur = 10.0)
+    jmax = frqindex(25.0, ms.mod_frqs)
+    view = modfreq(ms.components[:, 1:jmax], ms.fcs, ms.mod_frqs[1:jmax], ms.bws,
+                   ms.fs_env, ms.frame_dur, ms.nframes, ms.title)
+
+    plin = plot(view; colorbar = false, titlefontsize = 9,
+                title = "plot(ms) — linear power, default :ice colormap")
+    pdb  = plot(pow2db(view); clims = (-80, -10), colorbar = false, titlefontsize = 9,
+                nxticks = 5, nyticks = 4, title = "plot(pow2db(ms)); nxticks = 5, nyticks = 4")
+    keep(plot(plin, pdb; layout = (1,2), size = (1150, 480),
+              left_margin = 8Plots.mm, bottom_margin = 6Plots.mm),
+         "step7b-recipe-knobs-and-db")
+end
+display(step7b)
+
+
+## ---------------------------------------------------------------------------------------
+## Step 7 (continued) — the same contact in noise, and how the colormap changes what you see
+## ---------------------------------------------------------------------------------------
+
+#A shaft line at 4.7 Hz with its harmonic comb on a 300 Hz carrier, plus a blade line at 23.5 Hz
+#on an 800 Hz carrier: the contact used in 7a, reused here so the only thing changing is noise.
+function noisy_contact(snr_db, dur = 120.0)
+    t = (0:round(Int, dur*vfs)-1)./vfs
+    shaft = (1 .+ 0.4cos.(2π*4.7 .*t) .+ 0.2cos.(2π*9.4 .*t) .+ 0.1cos.(2π*14.1 .*t)).*cos.(2π*300 .*t)
+    blade = (1 .+ 0.5cos.(2π*23.5 .*t)).*cos.(2π*800 .*t)
+    clean = shaft .+ blade
+    pc = sum(abs2, clean)/length(clean)
+    σ = sqrt(pc/exp10(snr_db/10))
+    return signal(clean .+ σ.*randn(length(t)), vfs)
+end
+
+sonar_bank() = gammatone_filterbank(vfs; fmin = 77, fmax = 1232, base_frq = 308,
+                                    filters_per_erb = 8, bw_scale = 2)
+
+#Trim a modfreq to a modulation range, keeping it a modfreq so the recipe still draws it
+function modview(ms, fmax)
+    j = frqindex(fmax, ms.mod_frqs)
+    return modfreq(ms.components[:, 1:j], ms.fcs, ms.mod_frqs[1:j], ms.bws,
+                   ms.fs_env, ms.frame_dur, ms.nframes, ms.title)
+end
+
+#Express a modfreq in dB above its own median floor. The absolute level of a modulation spectrum
+#rises with the noise, so a fixed colour scale saturates as soon as the noise does; what a reader
+#actually wants to know is how far a line stands above the floor around it, which is what a sonar
+#display shows and what a detector thresholds.
+function floor_db(v)
+    db = pow2db.(v.components)
+    return modfreq(db .- median(db), v.fcs, v.mod_frqs, v.bws, v.fs_env, v.frame_dur, v.nframes, v.title)
+end
+
+#7c. The same contact at falling broadband SNR, each panel scaled to its own noise floor. Two
+#things to notice. First, the lines survive far below 0 dB BROADBAND SNR: a gammatone channel is
+#narrow, so almost none of the band's noise reaches any one channel, and the shaft line still
+#stands 18 dB clear at -10 dB SNR. Second, noise does not blur or move the lines - broadband noise
+#through a channel gives a fluctuating envelope, which is a raised pedestal across ALL modulation
+#rates - so the lines stay exactly where they are and are simply overtaken. The weak third shaft
+#harmonic goes first, the blade line last.
+step7c = let
+    fb = sonar_bank()
+    panels = Any[]
+    for snr in (20, 0, -10, -20)
+        v = floor_db(modview(modulation_spectrum(noisy_contact(snr), fb; dc = :remove, frame_dur = 10.0), 40.0))
+        k, jf = frqindex(300.0, v.fcs), frqindex(4.7, v.mod_frqs)
+        kb, jb = frqindex(800.0, v.fcs), frqindex(23.5, v.mod_frqs)
+        push!(panels, plot(v; clims = (0, 40), colorbar = false,     #no c = : the recipe's :ice default
+                           nxticks = 5, nyticks = 4, titlefontsize = 9,
+                           title = "SNR $(snr) dB — shaft $(round(v.components[k,jf], digits = 1)) dB, blade $(round(v.components[kb,jb], digits = 1)) dB over floor"))
+    end
+    keep(plot(panels...; layout = (2,2), size = (1200, 800),
+              left_margin = 8Plots.mm, bottom_margin = 5Plots.mm), "step7c-contact-in-noise")
+end
+display(step7c)
+
+#7d. The same noisy data (SNR -10 dB), the same colour limits, six colormaps. Only the colormap
+#changes, so every difference is the colormap talking. This is SEQUENTIAL data - a magnitude - and
+#the rule for magnitude is one hue running light to dark. The bottom row breaks that rule, and the
+#cost is that lightness stops encoding magnitude: turbo and jet put their brightest colour in the
+#MIDDLE of the range, so the mid-level NOISE PEDESTAL is rendered as brightly as the lines and
+#competes with them for attention. In the top row the floor stays near-black and only the contact
+#is bright. 7e measures the cause and shows what each map looks like with the colour taken away.
+step7d = let
+    fb = sonar_bank()
+    v = floor_db(modview(modulation_spectrum(noisy_contact(-10), fb; dc = :remove, frame_dur = 10.0), 40.0))
+    panels = [plot(v; c = cm, clims = (0, 20), colorbar = false, nxticks = 4, nyticks = 4,
+                   titlefontsize = 10,
+                   title = "$cm" * (cm in (:turbo, :jet) ? "  ✗ rainbow" : ""))
+              for cm in (:viridis, :magma, :ice, :greys, :turbo, :jet)]
+    keep(plot(panels...; layout = (2,3), size = (1300, 740),
+              left_margin = 7Plots.mm, bottom_margin = 5Plots.mm), "step7d-colormap-comparison")
+end
+display(step7d)
+
+#7e. Why the bottom row of 7d misleads, measured rather than asserted. A colormap encodes
+#magnitude honestly only if perceived lightness rises monotonically across it: equal steps in the
+#data must look like equal steps on the page. Left: L* (CIE lightness) along each map. The
+#perceptual maps climb steadily from dark to light. jet and turbo do not - they start dark, peak
+#bright in the MIDDLE, and end dark again, so their two ends are indistinguishable in lightness
+#and a mid-range value outshines the maximum. Right: the same data drawn as a greyscale of each
+#map's lightness alone, which is what a colourblind reader, a photocopy or a bad projector sees.
+step7e = let
+    C = Plots.Colors
+    Lstar(cm, n = 128) = [C.convert(C.Lab, C.RGB(get(cgrad(cm), t))).l for t in range(0, 1; length = n)]
+
+    pl = plot(; xlabel = "position along the colormap", ylabel = "perceived lightness L*",
+              legend = :bottomright, titlefontsize = 10, ylims = (-2, 102),
+              title = "honest magnitude needs L* to rise monotonically")
+    for (cm, col, st) in ((:viridis, :seagreen, :solid), (:magma, :purple, :solid),
+                          (:ice, :steelblue, :solid), (:greys, :black, :solid),
+                          (:turbo, :orange, :dash), (:jet, :crimson, :dash))
+        L = Lstar(cm)
+        mono = all(diff(L) .> -0.5)
+        plot!(pl, range(0, 1; length = length(L)), L; lc = col, ls = st, lw = 2,
+              label = "$cm$(mono ? "" : "  ✗ not monotonic")")
+    end
+
+    fb = sonar_bank()
+    v = floor_db(modview(modulation_spectrum(noisy_contact(-10), fb; dc = :remove, frame_dur = 10.0), 40.0))
+    #Redraw each map using ONLY its lightness: what survives if colour is taken away
+    greyof(cm) = cgrad([C.RGB(l/100, l/100, l/100) for l in Lstar(cm, 64)])
+    gp = [plot(v; c = greyof(cm), clims = (0, 20), colorbar = false,
+               nxticks = 3, nyticks = 3, titlefontsize = 9, title = "$cm — lightness only")
+          for cm in (:viridis, :magma, :turbo, :jet)]
+    keep(plot(pl, plot(gp...; layout = (2,2)); layout = (1,2), size = (1350, 560),
+              left_margin = 7Plots.mm, bottom_margin = 5Plots.mm), "step7e-why-lightness-matters")
+end
+display(step7e)
