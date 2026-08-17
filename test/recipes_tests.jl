@@ -90,6 +90,12 @@ end
     @test rec[1].plotattributes[:xticks] == TimeFrequencyAnalysis.generate_ticks(tf.time, 8)
     @test rec[1].plotattributes[:yticks] == TimeFrequencyAnalysis.generate_ticks(tf.frqs, 8)
 
+    #A spectrogram is a magnitude, so it defaults to the same sequential colormap the modfreq
+    #recipe uses rather than to whatever the plotting package happens to pick - and, being a
+    #default, a caller can still choose another
+    @test rec[1].plotattributes[:seriescolor] == :ice
+    @test RecipesBase.apply_recipe(Dict{Symbol,Any}(:seriescolor => :magma), tf)[1].plotattributes[:seriescolor] == :magma
+
     #The object's title and guides are DEFAULTS, not forced: a caller must be able to retitle a
     #plot and relabel an axis. Without this a panel of several spectrograms cannot be labelled at
     #all, since every panel would carry the object's own title.

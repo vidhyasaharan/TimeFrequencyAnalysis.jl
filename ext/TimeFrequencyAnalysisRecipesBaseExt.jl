@@ -2,6 +2,13 @@
 #in the session (Plots loads it). Heatmaps are drawn in index space with generate_ticks
 #labels so that nonuniform (e.g. logarithmic) frequency grids render uniformly; no dB or
 #other scaling is applied implicitly - pass amp2db(...) etc. explicitly.
+#
+#Both heatmap recipes default to the :ice colormap. A spectrogram, cochleagram or modulation
+#spectrum is a MAGNITUDE, so its colormap must be sequential: one hue running dark to light with
+#perceived lightness rising monotonically, so that equal steps in the data look like equal steps
+#on the page. :ice runs near-black to white through blue (L* 2 to 98, monotonic), which keeps the
+#noise floor dark and lets only the signal carry brightness. It is set with --> so a caller can
+#choose another map; see docs/src/plotting.md for which ones are safe and which are not.
 module TimeFrequencyAnalysisRecipesBaseExt
 
 using TimeFrequencyAnalysis
@@ -20,6 +27,7 @@ using RecipesBase
 
     @series begin
         seriestype := :heatmap
+        seriescolor --> :ice
         xticks --> xtks
         yticks --> ytks
         xguide --> "Time (sec)"
@@ -40,13 +48,8 @@ end
 #particular makes a panel of several modfreqs impossible to label, since every panel would carry
 #the same text.
 #
-#The default colormap is :ice. A modulation spectrum is a magnitude, so the map has to be
-#sequential - one hue, dark to light, with perceived lightness rising monotonically so that equal
-#steps in the data look like equal steps on the page. :ice runs near-black to white through blue
-#(L* 2 to 98, monotonic), which leaves the noise floor dark and lets only the modulation lines
-#carry brightness. A rainbow map would put its brightest colour in the middle of the range, so the
-#noise pedestal would compete with the lines for attention - see scripts/modulation-verification.jl
-#section 7d/7e, which measures this.
+#Colormap default as above; scripts/modulation-verification.jl sections 7d and 7e measure what a
+#rainbow map costs on exactly this kind of data.
 @recipe function f(ms::modfreq; nxticks = 8, nyticks = 8)
     xtks = generate_ticks(ms.mod_frqs,nxticks)
     ytks = generate_ticks(ms.fcs,nyticks)

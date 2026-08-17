@@ -50,7 +50,7 @@ using TimeFrequencyAnalysis, Plots
 s  = signal(x, 16000)                  #a signal container at 16 kHz
 fb = gammatone_filterbank(16000.0)     #30 ERB-spaced channels, 70 Hz – 6.7 kHz
 cg = gammatone_cochleagram(s, fb)      #envelope timefreq at the full signal rate
-plot(amp2db(cg); clims = (-80, 0))
+plot(amp2db(cg); clims = (-80, 0))     #:ice by default - see Plotting for why, and how to change it
 ```
 
 ![Cochleagram of a linear chirp next to its spectrogram](assets/gammatone-cochleagram.png)
