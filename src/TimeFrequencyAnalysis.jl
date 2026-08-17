@@ -67,7 +67,7 @@ export group_delay, envelope_delay, summed_resp
 export gammatone_delay, default_align, compensate, compensate!, compensation_lead
 
 #Modulation analysis (envelopes and modulation spectra)
-export power_envelope, startup_samples
+export power_envelope, modulation_spectrum, startup_samples
 
 #Sampling helpers
 export time2nsamples, resample

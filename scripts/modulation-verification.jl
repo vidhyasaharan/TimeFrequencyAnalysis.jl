@@ -541,3 +541,134 @@ step5d = let
     keep(p, "step5d-bandwidth-rule")
 end
 display(step5d)
+
+
+## ---------------------------------------------------------------------------------------
+## Step 6 — modulation_spectrum
+## ---------------------------------------------------------------------------------------
+
+#6a. The headline figure, and the whole point of a two-dimensional representation. Two carriers,
+#150 Hz and 600 Hz, modulated at different rates, 3 Hz and 11 Hz. A modulation spectrum alone
+#would show two rates but not say which carrier each belonged to; a spectrogram would show two
+#carriers but not their modulation. The joint map shows two isolated cells and - the part that
+#matters - NOTHING at the two off-diagonal cells that would pair each carrier with the other's
+#rate. dc = :remove here, so the carrier axis reads modulation POWER (see 6c).
+step6a = let
+    fb = gammatone_filterbank(vfs; fmin = 100, fmax = 800, base_frq = 200, filters_per_erb = 3, bw_scale = 2)
+    t = (0:round(Int, 60vfs)-1)./vfs
+    x = (1 .+ 0.5cos.(2π*3 .*t)).*cos.(2π*150 .*t) .+ (1 .+ 0.5cos.(2π*11 .*t)).*cos.(2π*600 .*t)
+    ms = modulation_spectrum(signal(x, vfs), fb; dc = :remove, frame_dur = 10.0)
+
+    jmax = frqindex(20.0, ms.mod_frqs)
+    db = pow2db.(ms.components[:, 1:jmax])
+    p = heatmap(db .- maximum(db); c = :viridis, clims = (-50, 0),
+                xticks = TimeFrequencyAnalysis.generate_ticks(ms.mod_frqs[1:jmax], 8),
+                yticks = TimeFrequencyAnalysis.generate_ticks(ms.fcs, 8),
+                xguide = "Modulation Rate (Hz)", yguide = "Carrier Frequency (Hz)",
+                title = "150 Hz @ 3 Hz and 600 Hz @ 11 Hz — two cells, and the off-diagonals are empty",
+                titlefontsize = 10, size = (1000, 520),
+                left_margin = 8Plots.mm, bottom_margin = 6Plots.mm)
+    for (fc, fm, lab) in ((150.0, 3.0, "→ here"), (600.0, 11.0, "→ here"),
+                          (150.0, 11.0, "✗ empty"), (600.0, 3.0, "✗ empty"))
+        scatter!(p, [frqindex(fm, ms.mod_frqs[1:jmax])], [frqindex(fc, ms.fcs)];
+                 mc = :white, ms = 6, markershape = :circle, markerstrokecolor = :red,
+                 markerstrokewidth = 2, alpha = 0.0, label = "")
+        annotate!(p, frqindex(fm, ms.mod_frqs[1:jmax]) + 4, frqindex(fc, ms.fcs),
+                  text(lab, 8, :left, :white))
+    end
+    #The third, weaker line on the 150 Hz carrier is the 2fm harmonic of its own 3 Hz modulation
+    #(see 6b), not a cross-term: it sits on the RIGHT carrier, at twice the right rate.
+    annotate!(p, frqindex(6.0, ms.mod_frqs[1:jmax]) + 4, frqindex(260.0, ms.fcs),
+              text("2fₘ harmonic of the\n3 Hz modulation", 7, :left, :white))
+    keep(p, "step6a-two-carriers-two-rates")
+end
+display(step6a)
+
+#6b. Harmonic structure, and the level check. The power envelope of A(1+m cos)cos(2*pi*fc*t) is
+#A^2(1 + m cos)^2 = A^2(1 + m^2/2) + 2mA^2 cos + (m^2/2)A^2 cos(2*), so with scaling = :spectrum
+#the fm bin reads 2m^2A^4 and the 2fm bin sits (m/4)^2 below it - 18 dB for m = 0.5, and further
+#down as m falls. Both predictions are drawn, so the levels are checked rather than admired.
+step6b = let
+    fb = vbank()
+    fc, fm = 200.0, 7.0
+    p = plot(; xlabel = "Modulation Rate (Hz)", ylabel = "Power (dB)", xlims = (0, 25),
+             legend = :topright, size = (950, 540), titlefontsize = 10,
+             title = "one carrier row: the fₘ line at 2m²A⁴ and its 2fₘ harmonic (m/4)² below",
+             left_margin = 8Plots.mm, bottom_margin = 5Plots.mm)
+    for (m, col) in zip((0.1, 0.25, 0.5, 1.0), (:navy, :seagreen, :orange, :crimson))
+        s = signal(vam(1.0, m, fc, fm, 60.0), vfs)
+        ms = modulation_spectrum(s, fb; dc = :remove, frame_dur = 10.0)
+        k = frqindex(fc, ms.fcs)
+        plot!(p, ms.mod_frqs, pow2db.(ms.components[k,:]); lc = col, lw = 1.5, label = "m = $m")
+        scatter!(p, [fm], [pow2db(2*m^2)]; mc = col, ms = 5, markerstrokewidth = 0, label = "")
+        scatter!(p, [2fm], [pow2db(2*m^2*(m/4)^2)]; mc = col, ms = 5, markershape = :diamond,
+                 markerstrokewidth = 0, label = "")
+    end
+    annotate!(p, 13.5, pow2db(2*1.0^2) - 3, text("● theory at fₘ = 2m²A⁴\n◆ theory at 2fₘ", 8, :left, :black))
+    keep(p, "step6b-harmonic-structure")
+end
+display(step6b)
+
+#6c. What dc does to the carrier axis - the thing most likely to be misread. :remove gives
+#absolute modulation power, so the carrier axis points at the carrier. :index divides each frame
+#by its own mean and gives modulation DEPTH, which for a uniformly modulated signal is the same
+#in every channel, including channels that barely hear it. The index map is therefore almost flat
+#down the carrier axis: that is correct, not a bug, but it means the largest entry of an :index
+#map does not mark the carrier. Both agree on the rate.
+step6c = let
+    fb = vbank()
+    fc, fm, m = 200.0, 7.0, 0.5
+    s = signal(vam(1.0, m, fc, fm, 60.0), vfs)
+    mr = modulation_spectrum(s, fb; dc = :remove, frame_dur = 10.0)
+    mi = modulation_spectrum(s, fb; dc = :index,  frame_dur = 10.0)
+    j = frqindex(fm, mr.mod_frqs)
+    jmax = frqindex(25.0, mr.mod_frqs)
+    ytk = TimeFrequencyAnalysis.generate_ticks(mr.fcs, 6)
+    xtk = TimeFrequencyAnalysis.generate_ticks(mr.mod_frqs[1:jmax], 6)
+
+    pr = heatmap(pow2db.(mr.components[:,1:jmax]); c = :viridis, clims = (-60, 0), colorbar = false,
+                 xticks = xtk, yticks = ytk, xguide = "Modulation Rate (Hz)",
+                 yguide = "Carrier Frequency (Hz)", title = "dc = :remove — power, peaked on the carrier",
+                 titlefontsize = 9, left_margin = 8Plots.mm, bottom_margin = 5Plots.mm)
+    pi_ = heatmap(pow2db.(mi.components[:,1:jmax]); c = :viridis, clims = (-60, 0), colorbar = false,
+                  xticks = xtk, yticks = ytk, xguide = "Modulation Rate (Hz)",
+                  yguide = "Carrier Frequency (Hz)", title = "dc = :index — depth, flat down the carrier axis",
+                  titlefontsize = 9, left_margin = 8Plots.mm, bottom_margin = 5Plots.mm)
+
+    pc = plot(pow2db.(mr.components[:,j]), 1:length(mr.fcs); lc = :crimson, lw = 2, label = ":remove (power)",
+              yticks = ytk, xlabel = "level at fₘ (dB)", ylabel = "Carrier Frequency (Hz)",
+              legend = :bottomright, titlefontsize = 9,
+              title = "the fₘ column: power spans $(round(Int, pow2db(maximum(mr.components[:,j])/minimum(mr.components[:,j])))) dB, index only $(round(pow2db(maximum(mi.components[:,j])/minimum(mi.components[:,j])), digits=1)) dB")
+    plot!(pc, pow2db.(mi.components[:,j]), 1:length(mi.fcs); lc = :seagreen, lw = 2, label = ":index (depth)")
+    keep(plot(pr, pi_, pc; layout = @layout([a b; c]), size = (1100, 780)), "step6c-dc-and-the-carrier-axis")
+end
+display(step6c)
+
+#6d. Cross-check against a spectrogram on the same data, which is the check that will be run on
+#real beams: AM puts sidebands at fc +/- fm, so the sideband spacing a spectrogram shows must
+#equal the modulation rate the modulation spectrum reports. Two independent measurements of the
+#same physical quantity - if they disagree, the chain is wrong somewhere.
+step6d = let
+    fb = vbank()
+    fc, fm, m = 200.0, 7.0, 0.6
+    s = signal(vam(1.0, m, fc, fm, 60.0) .+ 0.05.*randn(round(Int, 60vfs)), vfs)
+
+    sp = welch_psd(s; frame_dur = 8.0, scaling = :spectrum)
+    lo, hi = frqindex(170.0, sp.frqs), frqindex(230.0, sp.frqs)
+    ps = plot(sp.frqs[lo:hi], pow2db.(sp.components[lo:hi]); lc = :steelblue, lw = 1.4, label = "",
+              xlabel = "Frequency (Hz)", ylabel = "Power (dB)", titlefontsize = 9,
+              title = "spectrum: carrier with sidebands", left_margin = 8Plots.mm, bottom_margin = 5Plots.mm)
+    vline!(ps, [fc - fm, fc + fm]; lc = :red, ls = :dash, label = "fc ± fₘ")
+
+    ms = modulation_spectrum(s, fb; dc = :remove, frame_dur = 10.0)
+    k = frqindex(fc, ms.fcs)
+    jm = frqindex(25.0, ms.mod_frqs)
+    peak = ms.mod_frqs[argmax(ms.components[k, 2:jm]) + 1]
+    pm = plot(ms.mod_frqs[1:jm], pow2db.(ms.components[k,1:jm]); lc = :seagreen, lw = 1.4, label = "",
+              xlabel = "Modulation Rate (Hz)", ylabel = "Power (dB)", titlefontsize = 9,
+              title = "modulation spectrum reports fₘ = $(round(peak, digits = 2)) Hz; sidebands sit ±$(round(peak, digits = 2)) Hz",
+              left_margin = 8Plots.mm, bottom_margin = 5Plots.mm)
+    vline!(pm, [fm]; lc = :red, ls = :dash, label = "true fₘ")
+    keep(plot(ps, pm; layout = (2,1), size = (950, 640)), "step6d-spectrogram-cross-check")
+end
+display(step6d)

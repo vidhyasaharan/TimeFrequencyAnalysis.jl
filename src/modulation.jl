@@ -264,3 +264,133 @@ function power_envelope(::comp, Y::AbstractMatrix{Complex{T}}, fs::Real;
     end
     return E
 end
+
+
+## Modulation spectra
+
+#Shared worker: the component matrix plus the metadata modfreq needs, computed once. Both public
+#methods go through this so the envelope is never built twice.
+function _modulation_spectrum(s::signal{T}, fb::gammatone_filterbank;
+                              envelope::Symbol, max_mod_frq::Real, fs_env, align,
+                              rel_bw::Real, attenuation::Real, trim::Bool,
+                              frame_dur::Real, frame_shift_dur::Real,
+                              ndft::Union{Nothing,Int}, wtype::String,
+                              dc::Symbol, scaling::Symbol) where {T<:AbstractFloat}
+    (scaling ∈ (:spectrum,:density)) || error("scaling must be :spectrum or :density, got :$scaling")
+    subtract,normalise = _dc_flags(dc)
+
+    E = power_envelope(comp(), s, fb; envelope, max_mod_frq, fs_env, align, rel_bw, attenuation, trim)
+    fsenv = convert(T, s.fs/_decimation_factor(s.fs, max_mod_frq, fs_env))
+
+    #One row buffer and one framing, reused for every channel. signal wraps its array rather than
+    #copying it, so refilling the buffer re-points the framing at the next channel: no allocation
+    #per channel, and the frame reads stay contiguous instead of striding across E.
+    n = size(E,2)
+    rowbuf = Vector{T}(undef, n)
+    frames = framed_signal(signal(rowbuf, fsenv), frame_dur, frame_shift_dur)
+    len = frames.frame_length
+    nframes = frames.num_signal_frames
+    (nframes ≥ 1) || error("The envelope is $(round(n/fsenv, digits = 3)) s long at $fsenv Hz, shorter than one modulation frame of frame_dur = $frame_dur s. Analyse a longer span or reduce frame_dur")
+
+    nfft = max(len, ndft === nothing ? nextfastfft(len) : ndft)
+    win = window(T, len; wtype)
+    buf = zeros(T, nfft)
+    rfp = plan_rfft(buf)
+    nrfft = div(nfft,2) + 1
+    X = Vector{Complex{T}}(undef, nrfft)
+    P = Vector{T}(undef, nrfft)
+
+    nch = size(E,1)
+    C = Matrix{T}(undef, nch, nrfft)
+    for k ∈ 1:nch
+        copyto!(rowbuf, 1, view(E,k,:), 1, n)
+        _welch_accumulate!(P, buf, X, rfp, win, frames, subtract, normalise)
+        _welch_finish!(P, win, fsenv, nfft, nframes, scaling)
+        @inbounds for j ∈ 1:nrfft
+            C[k,j] = P[j]
+        end
+    end
+    return C, fsenv, nfft, nframes
+end
+
+"""
+    modulation_spectrum([comp(),] s::signal, fb::gammatone_filterbank [; <keyword arguments>])
+
+Modulation spectrum of the signal `s` analysed through the gammatone filterbank `fb`: the power
+in each channel's envelope at each modulation rate, as a [`modfreq`](@ref) whose rows are carrier
+channels and whose columns are modulation rates. With [`comp()`](@ref comp) only the component
+matrix is returned.
+
+The chain is [`power_envelope`](@ref) followed by [`welch_psd`](@ref) on every channel: each
+envelope is cut into overlapping frames, each frame windowed and transformed, and the resulting
+power spectra averaged. The result is a joint carrier-by-modulation-rate map.
+
+### Reading the result
+
+`frame_dur` sets the modulation resolution (roughly `1/frame_dur`, more with a tapered window)
+and the number of frames that fit sets the reliability; see [`modfreq`](@ref) for what the stored
+`frame_dur` and `nframes` mean and why neither substitutes for the other.
+
+`mod_frqs` runs from 0 to at most `fs_env/2`, but **reaches `fs_env/2` only when the transform
+length is even**. At the defaults it is not: 10 s at `fs_env = 312.5` Hz is 3125 samples and
+`nextfastfft(3125) = 3125`, since ``5^5`` is already 5-smooth, so the axis has 1563 bins ending
+at 156.2 Hz rather than 156.25. Pass an even `ndft` if a bin on Nyquist matters.
+
+`bws` in the result records each channel's bandwidth, which bounds how much of the modulation
+axis is real for that row: a channel of bandwidth `B` only passes both sidebands of a modulation
+at `f_m` while `2f_m ≲ B`. Rows near the bottom of a bank are therefore blind to the fastest
+modulation rates the axis offers, however finely the envelope was sampled.
+
+**`dc` decides what the carrier axis is telling you, and the default answers "how deeply", not
+"where".** It defaults to `:index` here, unlike [`welch_psd`](@ref) where it defaults to
+`:remove`: the input is a strictly positive envelope, so dividing each frame by its own mean is
+well defined and gives a dimensionless **modulation index**, letting a weak distant source and a
+strong near one be compared directly across channels. But depth is not power. A tone modulated
+uniformly is modulated just as deeply in a channel that barely hears it, so under `:index` the
+modulation index is roughly *flat* along the carrier axis and the largest entry does not mark the
+carrier. Use `dc = :remove` to see where the modulation power actually is; both agree on the
+modulation *rate*.
+
+### Keyword Arguments
+Everything [`power_envelope`](@ref) accepts (`envelope`, `max_mod_frq`, `fs_env`, `align`,
+`rel_bw`, `attenuation`, `trim`), plus:
+- `frame_dur` : Frame duration in secs for the modulation transform [Default = 10.0]
+- `frame_shift_dur` : Interval between frames in secs [Default = `frame_dur/2`, i.e. 50% overlap]
+- `ndft` : Number of DFT points [Default is the optimal FFT length at least the frame length]
+- `wtype` : Window type [Default = "hanning"], see [`window`](@ref)
+- `dc` : Frame mean handling, one of `:keep`, `:remove`, `:divide`, `:index` [Default = `:index`]
+- `scaling` : `:spectrum` or `:density` [Default = `:spectrum`]
+
+# Throws
+- `ErrorException` for anything [`power_envelope`](@ref) rejects, or if the decimated envelope is
+  shorter than one modulation frame (the message names `frame_dur`).
+"""
+function modulation_spectrum(::comp, s::signal, fb::gammatone_filterbank;
+                             envelope::Symbol = :power, max_mod_frq::Real = 125,
+                             fs_env::Union{Nothing,Real} = nothing,
+                             align::Union{Nothing,Symbol,Real,gammatone_delay} = :auto,
+                             rel_bw::Real = 1, attenuation::Real = 60, trim::Bool = true,
+                             frame_dur::Real = 10.0, frame_shift_dur::Real = frame_dur/2,
+                             ndft::Union{Nothing,Int} = nothing, wtype::String = "hanning",
+                             dc::Symbol = :index, scaling::Symbol = :spectrum)
+    C, = _modulation_spectrum(s, fb; envelope, max_mod_frq, fs_env, align, rel_bw, attenuation,
+                              trim, frame_dur, frame_shift_dur, ndft, wtype, dc, scaling)
+    return C
+end
+
+function modulation_spectrum(s::signal, fb::gammatone_filterbank;
+                             envelope::Symbol = :power, max_mod_frq::Real = 125,
+                             fs_env::Union{Nothing,Real} = nothing,
+                             align::Union{Nothing,Symbol,Real,gammatone_delay} = :auto,
+                             rel_bw::Real = 1, attenuation::Real = 60, trim::Bool = true,
+                             frame_dur::Real = 10.0, frame_shift_dur::Real = frame_dur/2,
+                             ndft::Union{Nothing,Int} = nothing, wtype::String = "hanning",
+                             dc::Symbol = :index, scaling::Symbol = :spectrum)
+    C, fsenv, nfft, nframes =
+        _modulation_spectrum(s, fb; envelope, max_mod_frq, fs_env, align, rel_bw, attenuation,
+                             trim, frame_dur, frame_shift_dur, ndft, wtype, dc, scaling)
+    idx = (dc === :index) || (dc === :divide)
+    title = "Gammatone Modulation Spectrum" * (idx ? " (modulation index)" : "")
+    return modfreq(C, fb.fcs, rfftfreq(nfft, fsenv), [gf.bw for gf ∈ fb.filters],
+                   fsenv, frame_dur, nframes, title)
+end

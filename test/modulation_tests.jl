@@ -226,3 +226,170 @@ end
     @test eltype(tf32.time) == Float32
     @test isapprox(tf32.components, Float32.(power_envelope(s, fb).components); rtol = 1e-3)
 end
+
+
+#The modulation spectrum's levels are all analytic for an AM tone. The power envelope of
+#A(1 + m cos 2*pi*fm*t)cos(2*pi*fc*t) is A^2(1 + m cos)^2, i.e.
+#   A^2(1 + m^2/2)  +  2mA^2 cos(2*pi*fm*t)  +  (m^2/2)A^2 cos(4*pi*fm*t),
+#so with scaling = :spectrum the fm bin reads (2mA^2)^2/2 = 2m^2A^4 and the 2fm bin
+#((m^2/2)A^2)^2/2, a ratio of (m/4)^2 - 18 dB below for m = 0.5.
+@testset "modulation spectrum levels" begin
+    fb = mbank()
+    A, m, fc, fm = 1.0, 0.5, 200.0, 7.0
+    s = signal(am_tone(A, m, fc, fm, 60.0), mfs)
+    ms = modulation_spectrum(s, fb; dc = :remove, frame_dur = 10.0)
+
+    @test ms isa modfreq{Float64,Float64}
+    @test ms.fcs == fb.fcs
+    @test ms.bws ≈ 2 .*erb.(fb.fcs)
+    @test ms.fs_env == 312.5
+    @test ms.frame_dur == 10.0
+    @test ms.mod_frqs[1] == 0
+    @test ms.mod_frqs[2] ≈ 0.1                      #10 s frames give 0.1 Hz bins exactly
+    @test size(ms.components) == (length(ms.fcs), length(ms.mod_frqs))
+    @test modulation_spectrum(comp(), s, fb; dc = :remove, frame_dur = 10.0) == ms.components
+
+    #The AM tone lands in exactly the right cell of the map
+    k, j = Tuple(argmax(ms.components))
+    @test ms.fcs[k] ≈ fc
+    @test ms.mod_frqs[j] ≈ fm
+
+    #and at the level theory predicts, on the carrier channel
+    @test ms.components[k,j] ≈ 2*m^2*A^4 rtol = 0.05
+
+    #The second harmonic sits at 2*fm, (m/4)^2 below - 18 dB for m = 0.5
+    j2 = frqindex(2fm, ms.mod_frqs)
+    @test pow2db(ms.components[k,j2]/ms.components[k,j]) ≈ pow2db((m/4)^2) atol = 1.5
+
+    #Nothing else on that row comes close: the modulation axis is not smeared
+    off = [i for i in eachindex(ms.mod_frqs) if abs(ms.mod_frqs[i] - fm) > 1 && abs(ms.mod_frqs[i] - 2fm) > 1]
+    @test maximum(ms.components[k, off]) < 0.01*ms.components[k,j]
+end
+
+
+#The two dimensions have to be independent: two carriers modulated at different rates must give
+#two isolated cells, with nothing at the two cells that would pair each carrier with the other's
+#rate. This is the test that the representation is genuinely two-dimensional.
+@testset "two carriers, two rates, no cross-talk" begin
+    fb = gammatone_filterbank(mfs; fmin = 100, fmax = 800, base_frq = 200, filters_per_erb = 2, bw_scale = 2)
+    t = (0:round(Int, 60mfs)-1)./mfs
+    x = (1 .+ 0.5cos.(2π*3 .*t)).*cos.(2π*150 .*t) .+ (1 .+ 0.5cos.(2π*11 .*t)).*cos.(2π*600 .*t)
+    ms = modulation_spectrum(signal(x, mfs), fb; dc = :remove, frame_dur = 10.0)
+
+    k150 = frqindex(150.0, ms.fcs)
+    k600 = frqindex(600.0, ms.fcs)
+    j3   = frqindex(3.0,  ms.mod_frqs)
+    j11  = frqindex(11.0, ms.mod_frqs)
+
+    #Each carrier's row peaks at its own rate
+    @test argmax(ms.components[k150, 2:end]) + 1 == j3
+    @test argmax(ms.components[k600, 2:end]) + 1 == j11
+
+    #and is far quieter at the other's rate: the off-diagonal cells are empty
+    @test ms.components[k150,j3] > 100*ms.components[k150,j11]
+    @test ms.components[k600,j11] > 100*ms.components[k600,j3]
+
+    #The two diagonal cells are the two largest entries in the whole map
+    idx = sortperm(vec(ms.components); rev = true)
+    top = [Tuple(CartesianIndices(ms.components)[i]) for i in idx[1:2]]
+    @test Set(first.(top)) == Set([k150, k600])
+    @test all(t -> t[2] ∈ (j3, j11), top)
+end
+
+
+#dc decides what the carrier axis means. :remove gives absolute modulation power and so points at
+#the carrier; :index gives depth, which for a uniformly modulated signal is the SAME in every
+#channel - including channels that barely hear it. Both agree on the rate.
+@testset "modulation spectrum dc modes" begin
+    fb = mbank()
+    A, m, fc, fm = 1.0, 0.5, 200.0, 7.0
+    s = signal(am_tone(A, m, fc, fm, 60.0), mfs)
+
+    mi = modulation_spectrum(s, fb; dc = :index,  frame_dur = 10.0)
+    mr = modulation_spectrum(s, fb; dc = :remove, frame_dur = 10.0)
+    j = frqindex(fm, mi.mod_frqs)
+
+    #Every channel peaks at the modulation rate under both conventions
+    for k in axes(mi.components,1)
+        @test argmax(mi.components[k,2:end]) + 1 == j
+        @test argmax(mr.components[k,2:end]) + 1 == j
+    end
+
+    #Depth is uniform across carriers; power is not, and picks out the carrier
+    col_i = mi.components[:,j]
+    col_r = mr.components[:,j]
+    @test maximum(col_i)/minimum(col_i) < 1.5          #index: flat along the carrier axis
+    @test maximum(col_r)/minimum(col_r) > 100          #power: peaked on the carrier
+    @test argmax(col_r) == frqindex(fc, mr.fcs)
+
+    #The modulation index of an m-modulated power envelope is 2m/(1 + m^2/2) in amplitude, so
+    #its bin reads half that squared - independent of the signal's absolute level
+    expected = (2m/(1 + m^2/2))^2/2
+    @test col_i[argmax(col_i)] ≈ expected rtol = 0.1
+    loud = modulation_spectrum(signal(10 .*s.x, mfs), fb; dc = :index, frame_dur = 10.0)
+    @test loud.components[:,j] ≈ col_i rtol = 1e-6     #10x the level, same index
+    quiet = modulation_spectrum(signal(10 .*s.x, mfs), fb; dc = :remove, frame_dur = 10.0)
+    @test quiet.components[:,j] ≈ 1e4 .* col_r rtol = 1e-6   #power scales as the 4th power of A
+
+    @test occursin("modulation index", mi.title)
+    @test !occursin("modulation index", mr.title)
+end
+
+
+@testset "modulation spectrum arguments and precision" begin
+    fb = mbank()
+    s = signal(am_tone(1.0, 0.5, 200.0, 7.0, 60.0), mfs)
+
+    #A span shorter than one frame is an error whose message names the keyword to change
+    @test_throws ErrorException modulation_spectrum(signal(am_tone(1.0,0.5,200.0,7.0,5.0), mfs), fb; frame_dur = 10.0)
+    @test_throws ErrorException modulation_spectrum(s, fb; scaling = :power)
+    @test_throws ErrorException modulation_spectrum(s, fb; dc = :normalise)
+    @test_throws ErrorException modulation_spectrum(s, fb; envelope = :hilbert)
+
+    #Frame duration sets the resolution and the number of frames averaged; both are recorded
+    for fd in (4.0, 10.0, 20.0)
+        ms = modulation_spectrum(s, fb; frame_dur = fd)
+        @test ms.frame_dur == fd
+        @test ms.mod_frqs[2] ≈ 1/fd rtol = 0.05
+        @test ms.nframes == number_signal_frames(zeros(size(power_envelope(comp(), s, fb), 2)),
+                                                 time2nsamples(fd, 312.5), time2nsamples(fd/2, 312.5))
+    end
+
+    #Precision follows the signal
+    fb32 = gammatone_filterbank(Float32(mfs); fmin = 100, fmax = 400, base_frq = 200, filters_per_erb = 2, bw_scale = 2)
+    ms32 = modulation_spectrum(signal(Float32.(s.x), Float32(mfs)), fb32; frame_dur = 10.0)
+    @test ms32 isa modfreq{Float32,Float32}
+    @test eltype(ms32.mod_frqs) == Float32 && eltype(ms32.bws) == Float32
+    @test typeof(ms32.fs_env) == Float32
+    @test isapprox(ms32.components, Float32.(modulation_spectrum(s, fb; frame_dur = 10.0).components); rtol = 1e-2)
+
+    #and the element ops keep it a modfreq
+    @test pow2db(modulation_spectrum(s, fb)) isa modfreq{Float64,Float64}
+end
+
+
+#The default configuration lands on an ODD transform length: 10 s at fs_env = 312.5 Hz is 3125
+#samples and nextfastfft(3125) = 3125, because 5^5 is already 5-smooth. An odd real transform has
+#no Nyquist bin, so the modulation axis stops one bin short of fs_env/2 rather than reaching it.
+@testset "default transform length is odd, so there is no Nyquist bin" begin
+    fb = mbank()
+    s = signal(am_tone(1.0, 0.5, 200.0, 7.0, 60.0), mfs)
+    ms = modulation_spectrum(s, fb)
+
+    len = time2nsamples(10.0, 312.5)
+    @test len == 3125
+    @test isodd(len)
+    @test TimeFrequencyAnalysis.nextfastfft(len) == len                    #5^5 needs no padding
+
+    @test length(ms.mod_frqs) == div(len,2) + 1
+    @test length(ms.mod_frqs) == 1563
+    @test ms.mod_frqs[end] < ms.fs_env/2             #NOT 156.25
+    @test ms.mod_frqs[end] ≈ div(len,2)*ms.fs_env/len
+    @test ms.mod_frqs[end] ≈ 156.2
+
+    #Padding to an even length puts a bin on Nyquist exactly
+    even = modulation_spectrum(s, fb; ndft = 3126)
+    @test iseven(3126)
+    @test even.mod_frqs[end] ≈ even.fs_env/2
+    @test length(even.mod_frqs) == 1564
+end

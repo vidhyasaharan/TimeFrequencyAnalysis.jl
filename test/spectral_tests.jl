@@ -284,3 +284,46 @@ end
     #An all-zero frame is not an error: it simply contributes no power under any rule
     @test all(welch_psd(comp(), signal(zeros(4000), wfs); frame_dur = 0.5, dc = :index)[1] .== 0)
 end
+
+
+#nextfastfft can return an ODD length - 3125 = 5^5 is the default transform length of
+#modulation_spectrum - and an odd real transform has no Nyquist bin at all. Its final bin is an
+#ordinary one and must be folded like any other, while an even transform's final bin is Nyquist
+#and must not be. White noise separates the two cases unambiguously: a folded bin averages
+#2*sigma^2/fs and an unfolded one half that. A tone cannot test this cleanly, because at the very
+#edge of the band a tone overlaps its own mirror image and reads high whichever way it is folded.
+@testset "welch_psd one-sided folding at both transform parities" begin
+    wfs = 1000.0
+    σ = 1.5
+    w = σ.*randn(400_000)
+
+    for L in (999, 3125, 625)          #odd: the last bin is not Nyquist, so it IS doubled
+        @test isodd(L)
+        sp = welch_psd(w, wfs; frame_dur = L/wfs, ndft = L, scaling = :density)
+        @test length(sp.components) == div(L,2) + 1
+        interior = sp.components[10:end-10]
+        mi = sum(interior)/length(interior)
+        @test mi ≈ 2σ^2/wfs rtol = 0.05
+        @test sp.components[end]/mi ≈ 1 atol = 0.15
+        #the frequency axis stops one bin short of Nyquist, since no bin lands on it
+        @test sp.frqs[end] < wfs/2
+        @test sp.frqs[end] ≈ div(L,2)*wfs/L
+    end
+
+    for L in (1000, 3124)              #even: the last bin IS Nyquist, so it is NOT doubled
+        @test iseven(L)
+        sp = welch_psd(w, wfs; frame_dur = L/wfs, ndft = L, scaling = :density)
+        @test length(sp.components) == div(L,2) + 1
+        interior = sp.components[10:end-10]
+        mi = sum(interior)/length(interior)
+        @test sp.components[end]/mi ≈ 0.5 atol = 0.15
+        @test sp.frqs[end] ≈ wfs/2
+    end
+
+    #Parseval holds either way - though it is far too blunt to catch a single mis-folded bin out
+    #of 1563, which is why the ratios above are tested directly
+    for L in (999, 1000)
+        sp = welch_psd(w, wfs; frame_dur = L/wfs, ndft = L, scaling = :density)
+        @test sum(sp.components)*(sp.frqs[2]-sp.frqs[1]) ≈ σ^2 rtol = 0.03
+    end
+end
