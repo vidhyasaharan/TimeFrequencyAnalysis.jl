@@ -63,6 +63,24 @@ end
     @test isapprox(cg.components, cg64.components; rtol = 1e-3)
 end
 
+@testset "resampling" begin
+    #DSP designs its resampling taps in Float64 and its output promotes to match them, so
+    #without converting the taps to the data's precision every resampled Float32 signal would
+    #come back Float64. This is the regression test for that conversion, on all three forms.
+    x32 = randn(Float32, 4000)
+    rs = resample(signal(x32, 8000), 4000)
+    @test rs isa signal{Float32}
+    @test typeof(rs.fs) == Float32
+    @test eltype(resample(x32, 8000, 4000)) == Float32
+
+    X32 = randn(Float32, 3, 4000)
+    @test eltype(resample(X32, 8000, 4000; dims = 2)) == Float32
+    @test eltype(resample(permutedims(X32), 8000, 4000; dims = 1)) == Float32
+
+    #Float32 and Float64 paths must agree numerically
+    @test isapprox(rs.x, convert(Vector{Float64}, x32) |> x -> resample(signal(x, 8000.0), 4000).x; rtol = 1e-3)
+end
+
 @testset "correlations" begin
     #Correlation outputs must stay in the input precision, for the sequence functions
     #and for both the single-point and batch (matrix) forms of nacf

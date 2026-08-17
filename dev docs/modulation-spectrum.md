@@ -133,25 +133,21 @@ existing machinery as it can.
 
 **Cannot be reused:**
 
-- **`enframe`.** Its docstring promises "consecutive frames separated by `frame_shift` samples",
-  but `enframe(x, frame_size, frame_shift)` only uses the requested shift to compute
-  `num_frames`, then delegates to `enframe!`, which **re-derives** the shift as
-  `floor((len − frame_size)/(num_frames − 1))` so the last frame ends at the end of the signal.
-  Measured at `frame_size = 1000`, requested shift 500:
+- **`enframe`.** Two reasons, neither of them the shift bug any more — that was found while
+  designing this and is **fixed** in `00b01e8`, which reroutes `enframe` through
+  `framed_signal`/`view_frame` so the requested shift is now honoured exactly. What remains:
 
-  | signal length | frames | actual shift |
-  |---|---|---|
-  | 3000 | 5 | 500 ✓ |
-  | 3200 | 5 | **550** |
-  | 3999 | 6 | **599** |
+  1. It returns **all** `num_frames` columns, including the trailing ones that extend past the
+     end of the signal and are zero padded. Averaging a zero-padded frame into a power estimate
+     biases it downward. Welch must use `num_signal_frames` only, which is what `view_frame`
+     lets it do directly.
+  2. It materialises the whole `frame_size × num_frames` matrix. In `modulation_spectrum` that
+     is one such allocation *per carrier channel* — 116 of them at SONAR's defaults — on top of
+     the envelope it already holds.
 
-  Welch's variance reduction depends on the overlap being the one that was asked for, so a
-  silently stretched shift is disqualifying. `enframe` also materialises the full
-  `frame_size × nframes` matrix, which in `modulation_spectrum` would mean one such allocation
-  *per carrier channel* on top of the envelope.
-
-  (This docstring/behaviour mismatch is a pre-existing bug in `framing.jl`, tracked separately.
-  Even once fixed, the allocation argument still favours `view_frame` here.)
+  Since `enframe` is now itself a thin wrapper over `framed_signal` + `view_frame`, using those
+  two directly is not bypassing it so much as calling the same machinery one level down, without
+  the materialisation.
 - **`specgram`.** Returns *magnitude*, floors with `eps(T)`, has no per-frame DC handling and no
   power scaling, and keeps every frame when only their mean is wanted.
 - **`magspec` / `dft`.** Single transform, no averaging, no power scaling; `dft` allocates a
