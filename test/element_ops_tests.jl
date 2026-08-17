@@ -29,3 +29,29 @@
     @test lmsp.time == msp.time
     @test lmsp.frames === msp.frames
 end
+
+
+#The same element-wise contract for modfreq: components transformed, every axis and every piece
+#of provenance carried through untouched.
+@testset "modfreq element ops" begin
+    C = [1.0 10.0; 100.0 1000.0]
+    mf = modfreq(C, [80.0, 160.0], [0.0, 5.0], [66.0, 83.0], 312.5, 10.0, 11, "Modulation Spectrum")
+
+    for (f, expected) in ((log, map(log, C)), (log10, map(log10, C)),
+                          (amp2db, map(amp2db, C)), (pow2db, map(pow2db, C)))
+        out = f(mf)
+        @test out isa modfreq{Float64,Float64}
+        @test out.components == expected
+        @test out.fcs == mf.fcs
+        @test out.mod_frqs == mf.mod_frqs
+        @test out.bws == mf.bws
+        @test out.fs_env == mf.fs_env
+        @test out.frame_dur == mf.frame_dur
+        @test out.nframes == mf.nframes
+        @test out.title == mf.title
+    end
+
+    #pow2db is 10log10 and amp2db 20log10, so one is exactly half the other on the same data
+    @test pow2db(mf).components ≈ amp2db(mf).components ./ 2
+    @test eltype(pow2db(modfreq(Float32.(C), [80.0, 160.0], [0.0, 5.0], [66.0, 83.0], 312.5, 10.0, 11)).components) == Float32
+end

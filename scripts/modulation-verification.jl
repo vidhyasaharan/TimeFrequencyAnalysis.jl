@@ -299,3 +299,92 @@ step3g_resolution = let
     keep(p, "step3g-resolution-variance-tradeoff")
 end
 display(step3g_resolution)
+
+
+## ---------------------------------------------------------------------------------------
+## Step 4 — modfreq
+## ---------------------------------------------------------------------------------------
+
+#4a. Orientation. A modfreq stores one ROW per carrier and one COLUMN per modulation rate, so
+#the image must have carrier on y and modulation rate on x. A transposed heatmap still looks
+#like a plausible modulation spectrum, which is exactly why it has to be checked against a
+#pattern that is not symmetric: here component[k,j] = 10k + j, so the value rises slowly down
+#the carrier axis and quickly along the modulation axis, and the corner values are all distinct.
+#(The plot recipe lands at step 7; until then this draws the component matrix directly, which is
+#what the recipe will wrap.)
+step4a = let
+    ncar, nmod = 6, 9
+    C = [10.0k + j for k in 1:ncar, j in 1:nmod]
+    fcs = [80.0, 120.0, 180.0, 270.0, 420.0, 640.0]          #six carriers, one per row
+    mfr = collect(range(0.0, 40.0; length = nmod))
+    mf = modfreq(C, fcs, mfr, 2 .*erb.(fcs), 312.5, 10.0, 11, "orientation check: 10k + j")
+
+    p = heatmap(mf.components; size = (900, 460), c = :viridis,
+                xticks = (1:nmod, string.(round.(Int, mf.mod_frqs))),
+                yticks = (1:ncar, string.(round.(Int, mf.fcs))),
+                xguide = "Modulation Rate (Hz)", yguide = "Carrier Frequency (Hz)",
+                title = mf.title)
+    for k in 1:ncar, j in 1:nmod
+        annotate!(p, j, k, text(string(round(Int, C[k,j])), 6, :white))
+    end
+    #The corners must read 11 at (lowest carrier, lowest rate) and 69 at (highest, highest)
+    keep(p, "step4a-orientation")
+end
+display(step4a)
+
+#4b. Ticks on a log carrier axis. The carrier grid is spaced on the ERB rate scale, so it is far
+#from uniform in Hz: drawn in index space with generate_ticks the rows stay evenly spaced on
+#screen while the labels report the true frequencies, which is how the timefreq recipe already
+#handles a nonuniform frequency axis. Plotting against the Hz values directly instead would
+#crush the 16 carriers of band X into the bottom eighth of the image.
+step4b = let
+    fcs = erbfreq_array(; fmin = 77.0, fmax = 1232.0, base_frq = 308.0, filters_per_erb = 8)
+    ncar = length(fcs)
+    mfr = collect(range(0.0, 60.0; length = 120))
+    #A ridge whose modulation rate rises linearly with CARRIER INDEX. In index space that is a
+    #straight diagonal; against Hz the ERB grid bunches the low carriers together, so the lower
+    #half of the diagonal collapses into the bottom of the image.
+    C = [exp(-((mfr[j] - (3.0 + 45.0*(k-1)/(ncar-1)))/0.8)^2) + 0.01 for k in 1:ncar, j in eachindex(mfr)]
+    mf = modfreq(C, fcs, mfr, 2 .*erb.(fcs), 312.5, 10.0, 11, "")
+
+    ytk = TimeFrequencyAnalysis.generate_ticks(mf.fcs, 8)
+    xtk = TimeFrequencyAnalysis.generate_ticks(mf.mod_frqs, 6)
+    pidx = heatmap(mf.components; c = :viridis, xticks = xtk, yticks = ytk, colorbar = false,
+                   xguide = "Modulation Rate (Hz)", yguide = "Carrier Frequency (Hz)",
+                   title = "index space: $(ncar) evenly spaced rows", titlefontsize = 10,
+                   left_margin = 8Plots.mm, bottom_margin = 6Plots.mm)
+    phz = heatmap(mf.mod_frqs, mf.fcs, mf.components; c = :viridis, colorbar = false,
+                  xguide = "Modulation Rate (Hz)", yguide = "Carrier Frequency (Hz)",
+                  title = "against Hz: the lower 60 rows collapse", titlefontsize = 10,
+                  left_margin = 8Plots.mm, bottom_margin = 6Plots.mm)
+    keep(plot(pidx, phz; layout = (1,2), size = (1100, 480)), "step4b-carrier-axis-ticks")
+end
+display(step4b)
+
+#4c. The element-wise operations must return a modfreq with every axis and every piece of
+#provenance intact, not a bare matrix: a dB view of a modulation spectrum is still a modulation
+#spectrum and must keep plotting like one. pow2db is 10log10 and amp2db 20log10, so on the same
+#data one is exactly half the other - the right one to use here is pow2db, because
+#modulation_spectrum returns power.
+step4c = let
+    fcs = erbfreq_array(; fmin = 77.0, fmax = 1232.0, base_frq = 308.0, filters_per_erb = 4)
+    ncar = length(fcs)
+    mfr = collect(range(0.0, 60.0; length = 50))
+    C = [exp(-((mfr[j]-7.0)/1.0)^2)*(0.2 + k/ncar) + 0.001 for k in 1:ncar, j in 1:length(mfr)]
+    mf = modfreq(C, fcs, mfr, 2 .*erb.(fcs), 312.5, 10.0, 11, "linear power")
+    db = pow2db(mf)
+
+    ytk = TimeFrequencyAnalysis.generate_ticks(mf.fcs, 6)
+    xtk = TimeFrequencyAnalysis.generate_ticks(mf.mod_frqs, 6)
+    plin = heatmap(mf.components; c = :viridis, xticks = xtk, yticks = ytk,
+                   title = "linear power — the skirts are invisible", titlefontsize = 10,
+                   xguide = "Modulation Rate (Hz)", yguide = "Carrier Frequency (Hz)",
+                   left_margin = 8Plots.mm, bottom_margin = 6Plots.mm)
+    pdb = heatmap(db.components; c = :viridis, xticks = xtk, yticks = ytk, clims = (-40, 0),
+                  title = "pow2db → still a $(typeof(db).name.name), axes intact: $(db.fcs == mf.fcs)",
+                  titlefontsize = 10,
+                  xguide = "Modulation Rate (Hz)", yguide = "Carrier Frequency (Hz)",
+                  left_margin = 8Plots.mm, bottom_margin = 6Plots.mm)
+    keep(plot(plin, pdb; layout = (1,2), size = (1100, 460)), "step4c-element-ops")
+end
+display(step4c)

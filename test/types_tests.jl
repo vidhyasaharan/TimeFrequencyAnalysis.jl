@@ -85,3 +85,50 @@ end
     @test tf2.time[1] ≈ frames.frame_length/(2*fs) #first frame centre
     @test tf2.time[2] - tf2.time[1] ≈ frames.frame_shift/fs #spacing equals the frame shift
 end
+
+
+#modfreq holds a modulation spectrum: rows are carrier channels, columns modulation rates. It is
+#deliberately not anchored to a signal (see the docstring), so its precision comes from the
+#components rather than from a signal field, and its invariants are checked at construction.
+@testset "modfreq" begin
+    ncar, nmod = 4, 7
+    C = reshape(collect(1.0:(ncar*nmod)), ncar, nmod)
+    fcs = [80.0, 160.0, 320.0, 640.0]
+    mfr = collect(range(0.0, 15.0; length = nmod))
+    bws = 2 .* erb.(fcs)
+
+    mf = modfreq(C, fcs, mfr, bws, 312.5, 10.0, 11, "Modulation Spectrum")
+    @test mf isa modfreq{Float64,Float64}
+    @test size(mf.components) == (length(mf.fcs), length(mf.mod_frqs))
+    @test mf.fcs == fcs && mf.mod_frqs == mfr && mf.bws == bws
+    @test mf.fs_env == 312.5 && mf.frame_dur == 10.0 && mf.nframes == 11
+    @test mf.title == "Modulation Spectrum"
+
+    #The short form leaves the title empty, as timefreq's does
+    @test modfreq(C, fcs, mfr, bws, 312.5, 10.0, 11).title === nothing
+
+    #Every field is converted to the precision carried by the components, whatever it was given as
+    mf32 = modfreq(Float32.(C), fcs, mfr, bws, 312.5, 10.0, 11)
+    @test mf32 isa modfreq{Float32,Float32}
+    @test eltype(mf32.fcs) == Float32
+    @test eltype(mf32.mod_frqs) == Float32
+    @test eltype(mf32.bws) == Float32
+    @test typeof(mf32.fs_env) == Float32
+    @test typeof(mf32.frame_dur) == Float32
+    @test mf32.nframes isa Int
+
+    #A complex component matrix keeps T real: real(S) is T for both real and complex components
+    mfc = modfreq(ComplexF64.(C), fcs, mfr, bws, 312.5, 10.0, 11)
+    @test mfc isa modfreq{Float64,ComplexF64}
+    @test eltype(mfc.fcs) == Float64
+
+    #Axes must match the component matrix, and the orientation is not interchangeable: a
+    #transposed matrix is rejected rather than silently accepted
+    @test_throws ErrorException modfreq(permutedims(C), fcs, mfr, bws, 312.5, 10.0, 11)
+    @test_throws ErrorException modfreq(C, fcs[1:3], mfr, bws, 312.5, 10.0, 11)
+    @test_throws ErrorException modfreq(C, fcs, mfr[1:5], bws, 312.5, 10.0, 11)
+    @test_throws ErrorException modfreq(C, fcs, mfr, bws[1:2], 312.5, 10.0, 11)   #one bw per carrier
+    @test_throws ErrorException modfreq(C, fcs, mfr, bws, 0, 10.0, 11)            #fs_env positive
+    @test_throws ErrorException modfreq(C, fcs, mfr, bws, 312.5, -1, 11)          #frame_dur positive
+    @test_throws ErrorException modfreq(C, fcs, mfr, bws, 312.5, 10.0, 0)         #at least one frame
+end

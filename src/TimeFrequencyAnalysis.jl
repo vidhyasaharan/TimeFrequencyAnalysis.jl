@@ -38,7 +38,7 @@ using LinearAlgebra: dot, mul!
 using Random: MersenneTwister
 
 #Signal containers and the component-output marker
-export signal, framed_signal, spectrum, timefreq, comp
+export signal, framed_signal, spectrum, timefreq, modfreq, comp
 
 #Framing
 export enframe, enframe!, view_frame, extract_frame, number_signal_frames, frame_energy
