@@ -100,9 +100,8 @@ and why the helpers are general-purpose and live in `gammatone.jl`, not here.
 
 ### DC handling: four options, not two
 
-Subtracting the envelope mean and dividing by it are **independent** operations. In the DFT,
-subtraction changes only bin 1 while division rescales every bin, so the four combinations are
-genuinely distinct and all are exposed:
+Subtracting the envelope mean and dividing by it are **independent** operations, so the four
+combinations are genuinely distinct and all are exposed:
 
 | `dc` | Operation | Units | DC bin |
 |---|---|---|---|
@@ -111,9 +110,26 @@ genuinely distinct and all are exposed:
 | `:divide` | `x / μ` | dimensionless | 1 |
 | `:index` (default) | `(x − μ)/μ` | dimensionless | ~0 |
 
-`:index` is the true modulation index and the default. Published DEMON removes DC; the
-MTF/modulation-depth tradition normalises by the mean; neither alone is sufficient. Implemented
-as two internal flags resolved from the symbol.
+`:index` is the true modulation index. Published DEMON removes DC; the MTF/modulation-depth
+tradition normalises by the mean; neither alone is sufficient. Implemented as two internal flags
+resolved from the symbol.
+
+**How the two operations actually behave** (measured, not assumed — an earlier draft of this
+document got it wrong):
+
+- **Division is exact and window independent.** `:divide` is `:keep` divided by `μ²` and
+  `:index` is `:remove` divided by `μ²`, to machine precision, under every window type.
+- **Subtraction is *not* a DC-bin-only operation.** It reaches only bin 1 under
+  `wtype = "rect"`, but a tapered window spreads the frame's constant component over its
+  mainlobe and sidelobes. Measured on a mean-2.5 envelope with a Hann window: the bin adjacent
+  to DC carries **3.15** under `:keep` against **6.4e-10** under `:remove`. Suppressing that
+  leakage is precisely why the mean is subtracted *before* windowing rather than left for the
+  window to contain — and it is why the low modulation rates, where shaft lines live, need it.
+
+**Defaults differ by function, deliberately.** `welch_psd` defaults to `dc = :remove`, the
+conventional choice for a general PSD and the only safe one for a signal that may straddle zero.
+`modulation_spectrum` defaults to `dc = :index`, because its input is a strictly positive
+envelope and the modulation index is what the analysis is for.
 
 ### `welch_psd` — what gets reused, and what cannot
 
@@ -125,9 +141,18 @@ existing machinery as it can.
 
 - the **`spectrum{T,T}` container** — a Welch estimate is exactly a vector of components on a
   frequency grid, which is what `spectrum` already is. No new type.
-- **`framed_signal` + `view_frame` + `number_signal_frames`** for framing. `view_frame` returns
-  views rather than copies, and `num_signal_frames` already excludes the zero-padded tail frames
-  that would bias an average downward.
+- **`framed_signal` + `view_frame` + `number_signal_frames`** for framing — the accumulator takes
+  a `framed_signal` and walks `view_frame`, exactly as `specgram` does, rather than re-deriving
+  the slice arithmetic. Measured against a variant that took the geometry as loose arguments and
+  sliced by hand, `view_frame` costs **0.4–1.7%** (the FFT dominates) and about 48 bytes per
+  frame from its `Union{SubArray,Vector}` return; not worth duplicating index arithmetic for.
+  Only `num_signal_frames` is walked, so the zero-padded tail frames that would bias an average
+  downward are never reached, and `view_frame` always returns a view on that range.
+
+  One consequence for `modulation_spectrum`: `signal` wraps a `Vector`, so it cannot hold a row
+  of an envelope matrix directly. That caller therefore keeps **one** row buffer and **one**
+  `framed_signal` around it and refills the buffer per channel — no per-channel allocation, and
+  the frame reads stay contiguous instead of striding across the matrix.
 - the **`window`** function, one `plan_rfft`, and `rfftfreq` — i.e. `specgram`'s whole skeleton
   (`spectral_analyses.jl:86-108`).
 

@@ -34,7 +34,7 @@ import DSP                                   #qualified access (DSP.Filters.resa
 import DSP: amp2db, pow2db, filt, filt!      #imported (not just used) so methods for the package's types can be added
 using DSP: hamming, hanning, nextfastfft
 using FFTW: rfft, plan_rfft, rfftfreq
-using LinearAlgebra: dot
+using LinearAlgebra: dot, mul!
 using Random: MersenneTwister
 
 #Signal containers and the component-output marker
@@ -44,7 +44,7 @@ export signal, framed_signal, spectrum, timefreq, comp
 export enframe, enframe!, view_frame, extract_frame, number_signal_frames, frame_energy
 
 #Window functions and spectral analyses
-export window, dft, magspec, specgram, periodogram
+export window, dft, magspec, specgram, periodogram, welch_psd
 
 #Element-wise transformations of spectrum/timefreq objects (amp2db and pow2db are DSP.jl
 #functions re-exported with added methods; log and log10 methods extend Base)

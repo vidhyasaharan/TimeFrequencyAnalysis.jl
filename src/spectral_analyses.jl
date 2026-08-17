@@ -125,6 +125,259 @@ function specgram(x::Array{<:AbstractFloat},fs::Number;frame_dur::Real=0.02, fra
 end
 
 
+## Welch power spectrum
+#
+#specgram keeps every frame and returns magnitude; welch_psd averages the frames away and
+#returns scaled power. The two share their skeleton (one window, one rfft plan, view_frame over
+#num_signal_frames) but not their purpose - see the welch_psd docstring.
+#
+#Framing goes through framed_signal/view_frame, the same machinery specgram uses. enframe is not
+#used even though it now honours its frame shift exactly: it returns all num_frames columns
+#including the zero padded trailing ones, which would bias a power average downward, and it
+#materialises the whole frame matrix, which the per-channel loop in modulation_spectrum would
+#pay for once per carrier.
+
+#A dc symbol resolves to two independent flags. Subtracting the frame mean changes only the DC
+#bin; dividing by it rescales every bin. All four combinations are meaningful, so both are kept
+#rather than bundling them into one "normalise" switch.
+function _dc_flags(dc::Symbol)
+    (dc === :keep)   && return (false, false)
+    (dc === :remove) && return (true,  false)
+    (dc === :divide) && return (false, true)
+    (dc === :index)  && return (true,  true)
+    error("dc must be one of :keep, :remove, :divide or :index, got :$dc")
+end
+
+#Apply the dc rule to one frame, window it, and write it into the zero padded transform buffer.
+#The buffer beyond the frame length is never written, so it stays zero from allocation.
+function _prepare_frame!(buf::AbstractVector{T}, frame::AbstractVector{T}, win::AbstractVector{T},
+                         subtract::Bool, normalise::Bool) where {T<:AbstractFloat}
+    len = length(frame)
+    if(!(subtract | normalise))
+        @inbounds for n ∈ 1:len
+            buf[n] = win[n]*frame[n]
+        end
+        return buf
+    end
+
+    μ = sum(frame)/len
+    if(normalise)
+        #Dividing by the mean is only meaningful when the frame has one to speak of. Compare
+        #against the frame's own RMS rather than against zero: a mean far below the signal scale
+        #would otherwise pass and produce an enormous, meaningless modulation index.
+        rms = sqrt(sum(abs2,frame)/len)
+        if(rms == 0)
+            @inbounds for n ∈ 1:len
+                buf[n] = zero(T)
+            end
+            return buf                  #an all-zero frame contributes no power under any rule
+        end
+        (abs(μ) > sqrt(eps(T))*rms) || error("dc = :divide and dc = :index scale each frame by its mean, but a frame here has a mean of $μ against an RMS of $rms; use dc = :remove or dc = :keep for a signal that is not offset from zero")
+        iμ = one(T)/T(μ)
+        if(subtract)
+            @inbounds for n ∈ 1:len
+                buf[n] = win[n]*(frame[n]*iμ - one(T))
+            end
+        else
+            @inbounds for n ∈ 1:len
+                buf[n] = win[n]*frame[n]*iμ
+            end
+        end
+    else
+        m = T(μ)
+        @inbounds for n ∈ 1:len
+            buf[n] = win[n]*(frame[n] - m)
+        end
+    end
+    return buf
+end
+
+#Sum |X|^2 over the whole frames of a framed_signal into P, reusing one buffer, one transform
+#and one output vector. Only num_signal_frames is walked, so view_frame always hands back a view
+#and never one of its zero padded tail frames.
+#
+#modulation_spectrum runs this once per carrier channel. Since signal wraps a Vector it cannot
+#hold a row of an envelope matrix directly, so that caller keeps ONE row buffer and ONE
+#framed_signal around it and refills the buffer per channel: no allocation per channel, and the
+#frame reads stay contiguous rather than striding across the matrix.
+function _welch_accumulate!(P::AbstractVector{T}, buf::AbstractVector{T}, X::AbstractVector{Complex{T}},
+                            rfp, win::AbstractVector{T}, frames::framed_signal{T},
+                            subtract::Bool, normalise::Bool) where {T<:AbstractFloat}
+    fill!(P, zero(T))
+    fbuf = view(buf,1:frames.frame_length)
+    for i ∈ 1:frames.num_signal_frames
+        _prepare_frame!(fbuf, view_frame(frames,i), win, subtract, normalise)
+        mul!(X, rfp, buf)
+        @inbounds for k ∈ eachindex(P)
+            P[k] += abs2(X[k])
+        end
+    end
+    return P
+end
+
+#Average over frames, apply the scaling convention, and fold the negative frequencies onto the
+#positive ones. DC has no negative counterpart, and neither does Nyquist when it exists (only
+#for an even transform length), so those two bins are not doubled.
+function _welch_finish!(P::AbstractVector{T}, win::AbstractVector{T}, fs::Real, nfft::Int,
+                        nframes::Int, scaling::Symbol) where {T<:AbstractFloat}
+    c = if(scaling === :spectrum)
+            one(T)/T(sum(win))^2
+        else
+            one(T)/(T(fs)*T(sum(abs2,win)))
+        end
+    c /= T(nframes)
+    has_nyquist = iseven(nfft)
+    n = length(P)
+    @inbounds for k ∈ 1:n
+        α = (k == 1 || (has_nyquist && k == n)) ? one(T) : T(2)
+        P[k] *= α*c
+    end
+    return P
+end
+
+"""
+    welch_psd([comp(),] frames::framed_signal [; <keyword arguments>])
+    welch_psd([comp(),] s::signal [; <keyword arguments>])
+    welch_psd([comp(),] x, fs [; <keyword arguments>])
+
+Welch estimate of the power spectrum of a signal: the signal is cut into overlapping frames,
+each frame is windowed and transformed, and the resulting power spectra are **averaged**.
+Returns a [`spectrum`](@ref); with [`comp()`](@ref comp) the plain component vector for the
+`framed_signal` form, or a `(components, frqs)` tuple for the `signal` and array forms (the
+same split as [`specgram`](@ref) and [`magspec`](@ref)). Only the `num_signal_frames` frames
+that lie entirely within the signal are used, so no zero padded frame biases the average.
+
+### The estimate
+
+For frames ``x_f[n]``, ``f = 1…F``, of length `N`, window ``w``, and `ndft = M`, with
+``\\tilde{x}_f`` the frame after the `dc` rule below:
+
+```math
+X_f[k] = \\sum_{n=0}^{N-1} w[n]\\, \\tilde{x}_f[n]\\, e^{-i2\\pi kn/M}
+\\qquad
+P[k] = \\frac{c\\,\\alpha_k}{F} \\sum_{f=1}^{F} |X_f[k]|^2
+```
+
+``\\alpha_k = 1`` at ``k = 0`` and at ``k = M/2`` (which exists only for even `M`) and
+``\\alpha_k = 2`` elsewhere, folding each negative frequency onto its positive counterpart, and
+``c`` is set by `scaling`:
+
+- `scaling = :spectrum` (default): ``c = 1/(\\sum_n w[n])^2``. A sinusoid of amplitude ``A``
+  reads ``A^2/2`` at its bin, **independent of frame length** — the convention to use when
+  looking for discrete lines.
+- `scaling = :density`: ``c = 1/(f_s \\sum_n w[n]^2)``, a power spectral density in units per
+  Hz, satisfying ``\\sum_k P[k]\\,\\Delta f ≈ \\mathrm{var}(x)``. Independent of frame length
+  for noise — the convention to use when characterising a noise floor.
+
+Averaging is the whole point. A single periodogram of noise has a standard error of about 100%
+of its own value **however long the record**; only averaging ``F`` frames reduces it, by
+``1/\\sqrt{F}``. Lengthening the frames buys frequency resolution, not reliability.
+
+### Removing the mean
+
+`dc` selects what happens to each frame before it is windowed. Subtracting the mean and
+dividing by it are independent operations, so all four combinations are available:
+
+| `dc` | frame becomes | units | DC bin |
+|:--- |:--- |:--- |:--- |
+| `:keep` | ``x`` | physical | mean power |
+| `:remove` (default) | ``x - \\mu`` | physical | ~0 |
+| `:divide` | ``x/\\mu`` | dimensionless | 1 |
+| `:index` | ``(x-\\mu)/\\mu`` | dimensionless | ~0 |
+
+The two operations behave quite differently in the result. **Dividing** rescales every bin by
+exactly ``1/\\mu^2``, whatever the window: `:divide` is `:keep` divided by ``\\mu^2``, and
+`:index` is `:remove` divided by ``\\mu^2``, to machine precision. **Subtracting** removes the
+frame's constant component, which reaches only the DC bin under `wtype = "rect"` but spreads
+over the mainlobe and sidelobes of any tapered window — with a Hann window and a mean-2.5
+envelope, the bin next to DC carries 3.15 under `:keep` against 6.4e-10 under `:remove`.
+Suppressing that leakage is the reason to subtract the mean before windowing rather than
+trusting the window to contain it, and it is why `:remove` rather than `:keep` is the default.
+
+The mean is taken per frame, not over the whole signal, so a slow drift in level is removed
+along with the constant offset.
+
+`:divide` and `:index` are meant for strictly positive data such as the envelopes behind
+[`modulation_spectrum`](@ref), where `:index` is the modulation index and is that function's
+default. They error on a frame whose mean is negligible against its own RMS, and an all-zero
+frame contributes no power rather than erroring. That check is a numerical guard against
+dividing by nothing, not a judgement about whether the data suits the mode: a signal that
+merely happens to straddle zero will divide by a small mean and return large, unstable numbers
+without complaint. For a general signal — which may well be centred on zero — `:remove` is the
+right choice and is the default here.
+
+### Difference from [`specgram`](@ref)
+
+| | `specgram` | `welch_psd` |
+|:--- |:--- |:--- |
+| Returns | [`timefreq`](@ref), one column per frame | [`spectrum`](@ref), frames averaged |
+| Quantity | magnitude ``\\|X\\|`` | power ``\\|X\\|^2``, scaled |
+| Frames | all kept, forming a time axis | averaged away, variance ∝ ``1/F`` |
+| Floor | `eps(T)` added to every bin | none |
+| `dc`, `scaling` | not offered | both |
+| Answers | *when* something happened | *how much* power at each frequency |
+
+### Keyword Arguments
+- `frame_dur` : Frame duration in secs, for the `signal` and array forms [Default = 0.02]
+- `frame_shift_dur` : Interval between consecutive frames in secs [Default = `frame_dur/2`, i.e. 50% overlap]
+- `ndft` : Number of DFT points [Default is the optimal FFT length that is at least the frame length]
+- `wtype` : Window type [Default = "hanning"], see [`window`](@ref)
+- `dc` : Frame mean handling, one of `:keep`, `:remove`, `:divide`, `:index` [Default = `:remove`]
+- `scaling` : `:spectrum` or `:density` [Default = `:spectrum`]
+
+# Throws
+- `ErrorException` if the signal is shorter than one frame, if `dc` or `scaling` is not one of
+  the values above, or if `:divide`/`:index` meets a frame whose mean is negligible against its
+  own RMS.
+"""
+function welch_psd(::comp, frames::framed_signal{T}; ndft::Int = nextfastfft(frames.frame_length),
+                   wtype::String = "hanning", dc::Symbol = :remove, scaling::Symbol = :spectrum) where {T<:AbstractFloat}
+    len = frames.frame_length
+    nfft = max(len,ndft) #Never use fewer DFT points than the frame length
+    nframes = frames.num_signal_frames
+    (nframes ≥ 1) || error("The signal holds $(length(frames.signal.x)) samples, fewer than the $len of one frame, so there is nothing to average")
+    (scaling ∈ (:spectrum,:density)) || error("scaling must be :spectrum or :density, got :$scaling")
+    subtract,normalise = _dc_flags(dc)
+
+    win = window(T,len;wtype)
+    buf = zeros(T,nfft)  #Zero padded buffer holding one windowed frame at a time
+    rfp = plan_rfft(buf) #Precomputed real-input FFT plan, reused for every frame
+    nrfft = div(nfft,2) + 1
+    X = Vector{Complex{T}}(undef,nrfft)
+    P = Vector{T}(undef,nrfft)
+
+    _welch_accumulate!(P,buf,X,rfp,win,frames,subtract,normalise)
+    return _welch_finish!(P,win,frames.signal.fs,nfft,nframes,scaling)
+end
+
+function welch_psd(frames::framed_signal; ndft::Int = nextfastfft(frames.frame_length),
+                   wtype::String = "hanning", dc::Symbol = :remove, scaling::Symbol = :spectrum)
+    P = welch_psd(comp(), frames; ndft, wtype, dc, scaling)
+    nfft = max(frames.frame_length,ndft)
+    frqs = rfftfreq(nfft,frames.signal.fs)
+    title = (scaling === :density) ? "Welch Power Spectral Density" : "Welch Power Spectrum"
+    return spectrum(frames.signal,P,frqs,title)
+end
+
+function welch_psd(s::signal; frame_dur::Real = 0.02, frame_shift_dur::Real = frame_dur/2,
+                   ndft::Int = nextfastfft(time2nsamples(frame_dur,s.fs)), wtype::String = "hanning",
+                   dc::Symbol = :remove, scaling::Symbol = :spectrum)
+    return welch_psd(framed_signal(s,frame_dur,frame_shift_dur); ndft, wtype, dc, scaling)
+end
+
+function welch_psd(::comp, s::signal; frame_dur::Real = 0.02, frame_shift_dur::Real = frame_dur/2,
+                   ndft::Int = nextfastfft(time2nsamples(frame_dur,s.fs)), wtype::String = "hanning",
+                   dc::Symbol = :remove, scaling::Symbol = :spectrum)
+    frames = framed_signal(s,frame_dur,frame_shift_dur)
+    P = welch_psd(comp(), frames; ndft, wtype, dc, scaling)
+    return P, rfftfreq(max(frames.frame_length,ndft),s.fs)
+end
+
+welch_psd(x::AbstractVector{<:AbstractFloat}, fs::Real; kwargs...) = welch_psd(signal(x,fs); kwargs...)
+
+welch_psd(::comp, x::AbstractVector{<:AbstractFloat}, fs::Real; kwargs...) = welch_psd(comp(), signal(x,fs); kwargs...)
+
+
 ## Complex exponential helpers used by the periodogram
 
 """
