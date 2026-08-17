@@ -445,6 +445,76 @@ end
     @test maximum(abs.(src[band]))/minimum(abs.(src[band])) < 2.5
 end
 
+#default_align exists because a fixed alignment target cannot serve every bank: a channel too
+#slow to peak inside the search window clamps to Delta = 0 and stays misaligned. The testset
+#above asserts the default 4 ms bank does exactly that (any(d.delays .== 0)); here we assert
+#:auto does not. compensation_lead/trim then remove the samples compensation invents.
+@testset "automatic alignment target and lead trimming" begin
+    afs = 16000.0
+    fb = gammatone_filterbank(afs)
+
+    #The bank method is the per-filter one applied across channels, and delays fall with fc
+    @test envelope_delay(fb) == [envelope_delay(gf) for gf in fb.filters]
+    @test envelope_delay(fb) isa Vector{Int}
+    @test issorted(envelope_delay(fb); rev = true)
+
+    #The target is one sample past the slowest channel, so nd exceeds every envelope delay
+    ta = default_align(fb)
+    @test ta isa Float64
+    @test ta ≈ (maximum(envelope_delay(fb)) + 1)/afs
+    da = gammatone_delay(fb; delay = :auto)
+    @test da.nd == maximum(envelope_delay(fb)) + 1
+    @test da.nd == gammatone_delay(fb; delay = ta).nd
+
+    #The point of :auto — every channel peaks strictly inside the window, so none is clamped.
+    #The 4 ms default on this same bank does clamp, which is the bug being fixed.
+    @test all(envelope_delay(fb) .< da.nd + 1)
+    @test all(da.delays .> 0)
+    @test any(gammatone_delay(fb; delay = 0.004).delays .== 0)
+
+    #With :auto every channel's impulse response peaks at the common target instant
+    e = zeros(1200); e[1] = 1.0
+    Ya = compensate(filt(fb, e), da)
+    for k in eachindex(fb.filters)
+        @test argmax(abs.(view(Ya, k, :))) == da.nd + 1
+    end
+
+    #compensation_lead is the number of leading columns holding zero-fill in some channel
+    @test compensation_lead(da) == maximum(da.delays)
+    @test all(Ya[argmax(da.delays), 1:compensation_lead(da)] .== 0)
+
+    #trim drops exactly those columns from every channel, keeping the matrix rectangular and
+    #the channels aligned with one another
+    Yt = compensate(filt(fb, e), da; trim = true)
+    @test size(Yt) == (size(Ya, 1), size(Ya, 2) - compensation_lead(da))
+    @test Yt == Ya[:, (compensation_lead(da) + 1):end]
+    @test compensate(filt(fb, e), da; trim = false) == Ya
+    #no channel now starts on an invented zero
+    @test all(abs.(Yt[:, 1]) .> 0)
+
+    #timefreq form trims the time axis to match and keeps the original origin rather than
+    #re-zeroing it, so the result still refers to the same instants as the input signal
+    s = signal(randn(1200), afs)
+    tf = gammatone_analysis(s, fb)
+    tft = compensate(tf, da; trim = true)
+    @test size(tft.components, 2) == length(tft.time)
+    @test tft.time == tf.time[(compensation_lead(da) + 1):end]
+    @test tft.time[1] ≈ compensation_lead(da)/afs
+    @test tft.time[1] > 0
+    @test compensate(tf, da).time == tf.time      #untrimmed still starts at 0
+    @test endswith(tft.title, "(delay compensated)")
+
+    #Errors: a bad symbol, and a signal shorter than the lead being trimmed
+    @test_throws ErrorException gammatone_delay(fb; delay = :nearest)
+    @test_throws ErrorException compensate(filt(fb, zeros(10)), da; trim = true)
+    @test_throws ErrorException compensate(gammatone_cochleagram(s, fb), da; trim = true)
+
+    #Precision follows the bank, and :auto composes with the align keyword on the analyses
+    fb32 = gammatone_filterbank(16000f0)
+    @test default_align(fb32) isa Float32
+    @test gammatone_analysis(s, fb; align = ta).components == compensate(tf, da).components
+end
+
 @testset "argument checking and precision" begin
     afs = 16000.0
     @test_throws ErrorException gammatone_filter(afs, 9000.0)  #fc above fs/2

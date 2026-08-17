@@ -64,7 +64,7 @@ export logfreq_array, linfreq_array, frqindex, erb, freq2erb, erb2freq, erbfreq_
 export gammatone_filter, gammatone_impulse_response
 export gammatone_filterbank, gammatone_analysis, gammatone_cochleagram
 export group_delay, envelope_delay, summed_resp
-export gammatone_delay, compensate, compensate!
+export gammatone_delay, default_align, compensate, compensate!, compensation_lead
 
 #Sampling helpers
 export time2nsamples, resample

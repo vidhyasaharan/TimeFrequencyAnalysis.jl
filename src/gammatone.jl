@@ -469,6 +469,7 @@ gammatone_cochleagram(x::AbstractVector{<:AbstractFloat}, fs::Real; kwargs...) =
 """
     gammatone_delay{T<:AbstractFloat}
     gammatone_delay(fb::gammatone_filterbank; delay = 0.004)
+    gammatone_delay(fb::gammatone_filterbank; delay = :auto)
 
 Per-channel delay and phase compensation for a filterbank, computed as in `gfb_delay_new`
 (Hohmann 2002, §4): the goal is that after compensation every channel's response to an
@@ -484,6 +485,11 @@ interior maximum this rotation makes the channel real and positive at the target
 value's phase); channels too slow to peak within the window — normal at the bottom of the
 bank — sit at the window edge, get `Δ_k = 0`, and remain partially misaligned, which the
 reference design accepts.
+
+`delay = :auto` takes the target from [`default_align`](@ref), the smallest value for which no
+channel is too slow to peak within the window. The fixed 4 ms default is a poor target for a
+low-frequency bank — a channel at `fc = 77` Hz with a 66 Hz bandwidth has an envelope delay of
+about 7.4 ms — so prefer `:auto` whenever the bank reaches below a few hundred Hz.
 
 Apply with [`compensate`](@ref)/[`compensate!`](@ref compensate), or pass `align` to the
 analyses directly.
@@ -501,7 +507,15 @@ struct gammatone_delay{T<:AbstractFloat}
     phase_factors::Vector{Complex{T}}
 end
 
-function gammatone_delay(fb::gammatone_filterbank{T}; delay::Real = 0.004) where {T<:AbstractFloat}
+#:auto resolves to the target that leaves no channel at the edge of the search window; see
+#default_align. Kept as a separate method so the Real form below stays the one hot callers hit
+gammatone_delay(fb::gammatone_filterbank, ::Val{:auto}) = gammatone_delay(fb; delay = default_align(fb))
+
+function gammatone_delay(fb::gammatone_filterbank{T}; delay::Union{Real,Symbol} = 0.004) where {T<:AbstractFloat}
+    if(delay isa Symbol)
+        (delay === :auto) || error("The alignment target must be a delay in seconds or :auto, got :$delay")
+        return gammatone_delay(fb, Val(:auto))
+    end
     (delay ≥ 0) || error("The alignment target delay must be non-negative")
     nd = Int(round(convert(Float64,delay)*convert(Float64,fb.fs)))
     #Impulse responses over the search window plus two samples, so the slope at a
@@ -549,8 +563,23 @@ function compensate!(Y::AbstractMatrix{Complex{T}}, d::gammatone_delay) where {T
 end
 
 """
-    compensate(Y::AbstractMatrix, d::gammatone_delay)
-    compensate(tf::timefreq, d::gammatone_delay)
+    compensation_lead(d::gammatone_delay)
+
+Number of leading samples of a compensated subband matrix that [`compensate!`](@ref compensate)
+zero-fills in at least one channel, namely `maximum(d.delays)`. Everything before this index is
+fabricated rather than measured, so an analysis that must not see invented samples should drop
+that many columns — which is what `trim = true` on [`compensate`](@ref) does.
+"""
+compensation_lead(d::gammatone_delay) = maximum(d.delays)
+
+#Drop the first n entries of a timefreq time axis, which is either a flat vector or one vector
+#per row (see types.jl)
+_drop_lead(time::AbstractVector{<:Real}, n::Int) = time[(n+1):end]
+_drop_lead(time::AbstractVector{<:AbstractVector{<:Real}}, n::Int) = [t[(n+1):end] for t ∈ time]
+
+"""
+    compensate(Y::AbstractMatrix, d::gammatone_delay; trim = false)
+    compensate(tf::timefreq, d::gammatone_delay; trim = false)
 
 Apply the per-channel delay and phase compensation `d` to the complex subband
 representation returned by [`gammatone_analysis`](@ref):
@@ -560,16 +589,36 @@ output has the same size as the input. Returns an aligned copy — for a
 and the title marked accordingly (see [`compensate!`](@ref) for the in-place matrix
 form). Compensation needs the complex analysis output; the cochleagram has already
 discarded the phase.
-"""
-compensate(Y::AbstractMatrix{<:Complex}, d::gammatone_delay) = compensate!(copy(Y),d)
 
-function compensate(tf::timefreq{T,Complex{T}}, d::gammatone_delay) where {T<:AbstractFloat}
-    comps = compensate(tf.components,d)
-    title = (tf.title === nothing) ? nothing : tf.title*" (delay compensated)"
-    return timefreq(tf.signal,tf.frames,comps,tf.frqs,tf.time,title)
+With `trim = true` the first [`compensation_lead`](@ref)`(d)` columns — the ones holding
+zero-fill in at least one channel — are dropped from every channel, so no analysis
+downstream sees a fabricated sample. Every channel loses the same columns, which keeps the
+matrix rectangular and the channels aligned with each other. For a `timefreq` the time axis
+is trimmed to match rather than re-zeroed, so the result still refers to the same instants
+as the input. Only the copying methods can trim; `compensate!` cannot shrink its argument.
+
+### Keyword Arguments
+- `trim` : Drop the zero-filled leading columns [Default = `false`]
+
+# Throws
+- `ErrorException` if `trim = true` and the input is no longer than the lead to be dropped.
+"""
+function compensate(Y::AbstractMatrix{<:Complex}, d::gammatone_delay; trim::Bool = false)
+    Z = compensate!(copy(Y),d)
+    trim || return Z
+    lead = compensation_lead(d)
+    (size(Z,2) > lead) || error("Cannot trim $lead leading samples from a $(size(Z,2))-sample compensated matrix: the signal is shorter than the compensation lead")
+    return Z[:,(lead+1):end]
 end
 
-compensate(::timefreq, ::gammatone_delay) = error("compensate expects the complex gammatone_analysis output; the cochleagram has already discarded the phase")
+function compensate(tf::timefreq{T,Complex{T}}, d::gammatone_delay; trim::Bool = false) where {T<:AbstractFloat}
+    comps = compensate(tf.components,d;trim)
+    title = (tf.title === nothing) ? nothing : tf.title*" (delay compensated)"
+    time = trim ? _drop_lead(tf.time,compensation_lead(d)) : tf.time
+    return timefreq(tf.signal,tf.frames,comps,tf.frqs,time,title)
+end
+
+compensate(::timefreq, ::gammatone_delay; trim::Bool = false) = error("compensate expects the complex gammatone_analysis output; the cochleagram has already discarded the phase")
 
 
 ## Delay and summed-response inspection
@@ -622,6 +671,36 @@ discrete binomial envelope peaks slightly earlier than its continuous-time count
 function envelope_delay(gf::gammatone_filter)
     _,h = gammatone_impulse_response(gf)
     return argmax(abs.(h)) - 1
+end
+
+"""
+    envelope_delay(fb::gammatone_filterbank)
+
+Envelope delay in samples of every channel of the filterbank, as a `Vector{Int}` in channel
+order — the per-filter [`envelope_delay`](@ref) applied across the bank. Delays fall with
+increasing centre frequency, so the first channel is the slowest and sets
+[`default_align`](@ref).
+"""
+envelope_delay(fb::gammatone_filterbank) = [envelope_delay(gf) for gf ∈ fb.filters]
+
+"""
+    default_align(fb::gammatone_filterbank)
+
+Alignment target in seconds for `fb`: the smallest delay at which **every** channel's envelope
+maximum falls strictly inside the search window that [`gammatone_delay`](@ref) uses, namely
+``(\\max_k τ_k + 1)/f_s`` where ``τ_k`` is the channel's [`envelope_delay`](@ref) in samples.
+
+This is the target `align = :auto` and `delay = :auto` resolve to. It exists because a fixed
+target cannot serve every bank: a channel slower than the window sits at its edge, keeps
+``Δ_k = 0`` and stays misaligned, which is what `gammatone_delay`'s 4 ms default does to any
+bank reaching below a few hundred Hz (an `fc = 77` Hz, 66 Hz-wide channel peaks at about
+7.4 ms). Deriving the target from the bank removes the failure mode instead of accepting it.
+
+The cost of a larger target is latency, not accuracy: every channel is delayed to the common
+instant, so the compensated output starts that much later (see [`compensation_lead`](@ref)).
+"""
+function default_align(fb::gammatone_filterbank{T}) where {T<:AbstractFloat}
+    return convert(T,(maximum(envelope_delay(fb)) + 1)/convert(Float64,fb.fs))
 end
 
 """
