@@ -81,6 +81,48 @@ end
     @test isapprox(rs.x, convert(Vector{Float64}, x32) |> x -> resample(signal(x, 8000.0), 4000).x; rtol = 1e-3)
 end
 
+@testset "modulation" begin
+    #The whole modulation chain in Float32: the filterbank is designed at Float32, the envelope
+    #and its decimation stay there, and the modfreq that comes out carries Float32 axes. This is
+    #the end-to-end guard - the intermediate stages each have their own precision tests, but only
+    #this one runs the full signal -> subbands -> envelope -> decimate -> Welch path.
+    mfs32 = 3125f0
+    t = (0:round(Int, 20*3125)-1)./3125
+    x32 = Float32.((1 .+ 0.5cos.(2π*7 .*t)).*cos.(2π*200 .*t))
+    s32 = signal(x32, mfs32)
+    fb32 = gammatone_filterbank(mfs32; fmin = 100, fmax = 400, base_frq = 200,
+                                filters_per_erb = 2, bw_scale = 2)
+    @test fb32 isa gammatone_filterbank{Float32}
+    @test default_align(fb32) isa Float32
+
+    env = power_envelope(s32, fb32)
+    @test env isa timefreq{Float32,Float32}
+    @test eltype(env.time) == Float32
+    @test eltype(power_envelope(comp(), s32, fb32)) == Float32
+
+    ms = modulation_spectrum(s32, fb32; frame_dur = 4.0)
+    @test ms isa modfreq{Float32,Float32}
+    @test eltype(ms.fcs) == Float32
+    @test eltype(ms.mod_frqs) == Float32
+    @test eltype(ms.bws) == Float32
+    @test typeof(ms.fs_env) == Float32
+    @test typeof(ms.frame_dur) == Float32
+    @test pow2db(ms) isa modfreq{Float32,Float32}
+
+    #The Float32 and Float64 paths must agree numerically, and must find the same cell
+    fb64 = gammatone_filterbank(3125.0; fmin = 100, fmax = 400, base_frq = 200,
+                                filters_per_erb = 2, bw_scale = 2)
+    ms64 = modulation_spectrum(signal(convert(Vector{Float64}, x32), 3125.0), fb64; frame_dur = 4.0)
+    @test isapprox(ms.components, ms64.components; rtol = 1e-2)
+    @test Tuple(argmax(ms.components)) == Tuple(argmax(ms64.components))
+
+    #welch_psd on its own, for each dc mode, since :index divides by a Float32 mean
+    env32 = power_envelope(comp(), s32, fb32)[1,:]
+    for d in (:keep, :remove, :divide, :index)
+        @test welch_psd(env32, ms.fs_env; frame_dur = 4.0, dc = d) isa spectrum{Float32,Float32}
+    end
+end
+
 @testset "correlations" begin
     #Correlation outputs must stay in the input precision, for the sequence functions
     #and for both the single-point and batch (matrix) forms of nacf
