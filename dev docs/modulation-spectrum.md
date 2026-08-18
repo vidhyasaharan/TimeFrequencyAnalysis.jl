@@ -1,6 +1,7 @@
 # Modulation spectrum analysis (design + build plan)
 
-**Status: planned 2026-08-17. Not started.** Target release: **v0.4.0**. Branch: **`main`**.
+**Status: complete — all eight steps done, v0.4.0, 98440 tests passing, docs build clean.**
+Planned 2026-08-17, finished 2026-08-18. Branch: **`main`**.
 
 Adds the generic half of an amplitude modulation spectrum analysis: from a complex gammatone
 subband representation to *power as a function of carrier frequency × modulation rate*. The
@@ -351,7 +352,7 @@ sitting on a floor that should not be there.
      (116 carriers against 1563 modulation bins), so one tick count for both would not do.
 8. **Finish**: `float32_tests.jl` block; `docs/src/modulation.md` + `make.jl`; `modfreq` in
    `types.md`; `welch_psd` in `spectral.md`; `default_align`/`compensation_lead` in `gammatone.md`;
-   `modfreq` bullet in `plotting.md`; module docstring; version 0.4.0.
+   `modfreq` and the colormap section in `plotting.md`; module docstring; version 0.4.0. **DONE.**
 
 `makedocs` runs `checkdocs = :exports`, so **every new export must appear in a docs page or the
 build fails**.
