@@ -4,10 +4,10 @@
 Time-frequency analysis of uniformly sampled signals.
 
 The package provides container types for signals and their spectral representations
-([`signal`](@ref), [`framed_signal`](@ref), [`spectrum`](@ref), [`timefreq`](@ref)),
-routines to split signals into frames, and spectral / spectro-temporal analyses
-([`dft`](@ref), [`magspec`](@ref), [`specgram`](@ref), [`periodogram`](@ref)), together
-with supporting utilities (window functions, frequency grids, resampling and synthetic
+([`signal`](@ref), [`framed_signal`](@ref), [`spectrum`](@ref), [`timefreq`](@ref),
+[`modfreq`](@ref)), routines to split signals into frames, and spectral / spectro-temporal
+analyses ([`dft`](@ref), [`magspec`](@ref), [`specgram`](@ref), [`welch_psd`](@ref),
+[`periodogram`](@ref)), together with supporting utilities (window functions, frequency grids, resampling and synthetic
 signal generators). Correlation analyses ([`xcorr`](@ref), [`acorr`](@ref), [`acf`](@ref),
 [`nacf`](@ref)) and digital filter responses on arbitrary frequency grids
 ([`filter_coefs`](@ref), [`filter_resp`](@ref), [`filter_magresp`](@ref)) complete the
@@ -15,7 +15,11 @@ classical toolkit. An auditory-model branch adds the complex gammatone filterban
 Hohmann (2002): ERB-scale frequency grids ([`erbfreq_array`](@ref)), filter and filterbank
 design ([`gammatone_filter`](@ref), [`gammatone_filterbank`](@ref)), complex-subband and
 cochleagram analyses ([`gammatone_analysis`](@ref), [`gammatone_cochleagram`](@ref)), and
-per-channel delay and phase alignment ([`gammatone_delay`](@ref), [`compensate`](@ref)).
+per-channel delay and phase alignment ([`gammatone_delay`](@ref), [`default_align`](@ref),
+[`compensate`](@ref)). On top of that branch sits modulation analysis — how the energy in each
+channel fluctuates over time rather than how it is spread across frequency at one instant:
+[`power_envelope`](@ref) for the decimated subband envelopes and
+[`modulation_spectrum`](@ref) for their joint carrier-by-modulation-rate spectrum.
 Plot recipes for the container types load automatically when the Plots ecosystem
 (RecipesBase) is present — a package extension, so none of it is a hard dependency.
 
@@ -24,9 +28,9 @@ and every routine computes in that precision: a `Float32` signal produces `Float
 throughout with no intermediate promotion to `Float64`.
 
 Most analyses come in two flavours, selected by dispatch: called normally they return a
-[`spectrum`](@ref)/[`timefreq`](@ref) container carrying the signal, frequency and time
-indices; called with [`comp()`](@ref comp) as the first argument they return the plain
-component array only.
+[`spectrum`](@ref)/[`timefreq`](@ref)/[`modfreq`](@ref) container carrying the frequency and
+time indices (and, where it is meaningful, the signal itself); called with
+[`comp()`](@ref comp) as the first argument they return the plain component array only.
 """
 module TimeFrequencyAnalysis
 
@@ -75,14 +79,14 @@ export time2nsamples, resample
 #Synthetic signal generators (test and demonstration signals)
 export white_noise, ar_process, impulse_train
 
-include("types.jl")             #signal, framed_signal, spectrum, timefreq, comp
+include("types.jl")             #signal, framed_signal, spectrum, timefreq, modfreq, comp
 include("sampling.jl")          #time2nsamples, resample
 include("framing.jl")           #enframe et al., frame_energy, padding helpers
 include("windows.jl")           #window
 include("frequency_grids.jl")   #logfreq_array, linfreq_array, frqindex, findclosest
 include("signal_generators.jl") #white_noise, ar_process, impulse_train
-include("spectral_analyses.jl") #dft, magspec, specgram, periodogram, cexp
-include("element_ops.jl")       #log/log10/amp2db/pow2db methods for spectrum and timefreq
+include("spectral_analyses.jl") #dft, magspec, specgram, welch_psd, periodogram, cexp
+include("element_ops.jl")       #log/log10/amp2db/pow2db methods for spectrum, timefreq and modfreq
 include("correlations.jl")      #xcorr(!), acorr(!), acf, nacf
 include("filters.jl")           #filter_coefs, filter_resp, filter_magresp and helpers
 include("gammatone.jl")         #gammatone_filter(bank), gammatone_filt(!), analyses, alignment and helpers
