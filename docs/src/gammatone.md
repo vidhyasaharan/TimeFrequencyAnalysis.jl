@@ -99,6 +99,8 @@ group_delay
 envelope_delay
 summed_resp
 gammatone_delay
+default_align
+compensation_lead
 compensate
 compensate!
 ```

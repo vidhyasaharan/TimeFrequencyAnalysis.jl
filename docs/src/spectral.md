@@ -10,6 +10,7 @@ Spectral (frequency axis) and spectro-temporal (time and frequency axes) analyse
 - *STFT spectrogram* — [`specgram`](@ref), the short-time Fourier transform magnitude
 - *Periodograms* — [`periodogram`](@ref), projections onto complex exponentials at an
   arbitrary frequency grid (for example, log-spaced grids from [`logfreq_array`](@ref))
+- *Welch power spectral density* — [`welch_psd`](@ref), frame-averaged power spectrum
 
 Each analysis returns a [`spectrum`](@ref) or [`timefreq`](@ref) container, or the plain
 component array when called with [`comp()`](@ref comp) as the first argument.
@@ -31,6 +32,12 @@ specgram
 
 ```@docs
 periodogram
+```
+
+## Welch Power Spectral Density
+
+```@docs
+welch_psd
 ```
 
 ## Working in dB and log scales

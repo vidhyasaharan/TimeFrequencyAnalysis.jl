@@ -18,6 +18,7 @@ makedocs(;
         "Framing" => "framing.md",
         "Spectral Analyses" => "spectral.md",
         "Gammatone Filterbank" => "gammatone.md",
+        "Modulation Analysis" => "modulation.md",
         "Correlations" => "correlations.md",
         "Filter Responses" => "filters.md",
         "Plotting" => "plotting.md",

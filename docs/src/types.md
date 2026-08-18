@@ -10,11 +10,12 @@ serve this purpose:
 - [`signal`](@ref) — signal samples together with the sampling rate
 - [`framed_signal`](@ref) — a signal plus the geometry for splitting it into frames
 
-Spectral analyses store their output in one of two container structs, which keep the
-provenance of the result (the analysed signal, the frequency and time axes, and a title):
+Analyses store their output in one of three container structs, which keep the provenance of
+the result (the analysed signal, the frequency and time axes, and a title):
 
 - [`spectrum`](@ref) — spectral components over a frequency axis
 - [`timefreq`](@ref) — spectro-temporal components over time and frequency axes
+- [`modfreq`](@ref) — modulation components over carrier frequency and modulation rate axes
 
 Every struct is parametric in `T<:AbstractFloat`, the precision of the signal; constructors
 convert all numeric fields to that precision.
@@ -41,6 +42,12 @@ spectrum
 
 ```@docs
 timefreq
+```
+
+## `modfreq`
+
+```@docs
+modfreq
 ```
 
 ## The `comp()` convention
