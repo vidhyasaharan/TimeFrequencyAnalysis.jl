@@ -73,6 +73,9 @@ export gammatone_delay, default_align, compensate, compensate!, compensation_lea
 #Modulation analysis (envelopes and modulation spectra)
 export power_envelope, modulation_spectrum, startup_samples
 
+#Helpers that read a number off a signal or a spectrum rather than computing a representation
+export peak_frequency
+
 #Sampling helpers
 export time2nsamples, resample
 
@@ -91,6 +94,7 @@ include("correlations.jl")      #xcorr(!), acorr(!), acf, nacf
 include("filters.jl")           #filter_coefs, filter_resp, filter_magresp and helpers
 include("gammatone.jl")         #gammatone_filter(bank), gammatone_filt(!), analyses, alignment and helpers
 include("modulation.jl")        #power_envelope, modulation_spectrum
+include("utilities.jl")         #peak_frequency and other small cross-cutting helpers
 include("plots_support.jl")     #generate_ticks (the recipes live in the RecipesBase extension)
 
 end # module

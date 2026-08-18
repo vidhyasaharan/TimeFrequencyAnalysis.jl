@@ -34,6 +34,7 @@ files spot-check `Float32` inline as they already do.
 | Delay-compensation helpers: `envelope_delay(fb)`, `default_align`, `compensation_lead`, `compensate(...; trim)` | |
 | Plot recipe for `modfreq` | |
 | `scripts/modulation-verification.jl` — visual checks per build step | |
+| `peak_frequency`, and `src/utilities.jl` to hold it and future helpers | |
 
 ## The chain
 

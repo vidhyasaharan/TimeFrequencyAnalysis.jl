@@ -29,6 +29,15 @@ erbfreq_array
 frqindex
 ```
 
+## Reading a number off a signal
+
+Helpers that answer a question about a signal or a spectrum without computing a new
+representation of it.
+
+```@docs
+peak_frequency
+```
+
 ## Sampling helpers
 
 ```@docs

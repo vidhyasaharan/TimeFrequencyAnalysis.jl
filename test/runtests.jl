@@ -36,6 +36,9 @@ include("setup.jl")
     @testset "modulation" begin
         include("modulation_tests.jl")
     end
+    @testset "utilities" begin
+        include("utilities_tests.jl")
+    end
     @testset "element ops" begin
         include("element_ops_tests.jl")
     end
