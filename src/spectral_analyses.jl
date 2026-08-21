@@ -269,7 +269,7 @@ P[k] = \\frac{c\\,\\alpha_k}{F} \\sum_{f=1}^{F} |X_f[k]|^2
   Hz, satisfying ``\\sum_k P[k]\\,\\Delta f ≈ \\mathrm{var}(x)``. Independent of frame length
   for noise — the convention to use when characterising a noise floor.
 
-Averaging is the whole point. A single periodogram of noise has a standard error of about 100%
+A single periodogram of noise has a standard error of about 100%
 of its own value **however long the record**; only averaging ``F`` frames reduces it, by
 ``1/\\sqrt{F}``. Lengthening the frames buys frequency resolution, not reliability.
 

@@ -58,8 +58,10 @@ export amp2db, pow2db
 export xcorr, xcorr!, acorr, acorr!, acf, nacf
 
 #Digital filter representation, filtering (filt and filt! are DSP.jl functions re-exported
-#with methods for the package's filter types), frequency responses and impulse responses
-export filter_coefs, filt, filt!, filter_resp, filter_magresp, filter_impresp
+#with methods for the package's filter types; the stateful forms take a filter_state and
+#carry it across calls for frame-by-frame filtering), frequency responses and impulse
+#responses
+export filter_coefs, filt, filt!, filter_state, filter_resp, filter_magresp, filter_impresp
 
 #Frequency grids and frequency indexing (erb and friends are the auditory ERB scale)
 export logfreq_array, linfreq_array, frqindex, erb, freq2erb, erb2freq, erbfreq_array

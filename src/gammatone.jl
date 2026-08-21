@@ -200,6 +200,34 @@ end
 
 ## Filtering kernel
 
+#Order-4 cascade kernel: run x through the four one-pole recursions into y, starting the
+#stages from the states w1..w4 (the previous output of each stage) and returning their
+#final values. The states live in registers for the whole sweep — the four recursions
+#pipeline across samples, which a stage-by-stage sweep cannot do — and touch memory only
+#at the call boundary, so the stateless and stateful entry points share one kernel with no
+#speed penalty for either.
+@inline function gammatone_cascade4!(y::AbstractVector{Complex{T}}, x::AbstractVector{<:Real}, ã::Complex{T}, k::T,
+        w1::Complex{T}, w2::Complex{T}, w3::Complex{T}, w4::Complex{T}) where {T<:AbstractFloat}
+    @inbounds for n ∈ eachindex(x,y)
+        w1 = muladd(ã,w1,x[n])
+        w2 = muladd(ã,w2,w1)
+        w3 = muladd(ã,w3,w2)
+        w4 = muladd(ã,w4,w3)
+        y[n] = k*w4
+    end
+    return w1,w2,w3,w4
+end
+
+#General-order building block: one one-pole stage swept over y in place, starting from the
+#state w (the stage's previous output) and returning its final value.
+@inline function gammatone_stage!(y::AbstractVector{Complex{T}}, ã::Complex{T}, w::Complex{T}) where {T<:AbstractFloat}
+    @inbounds for n ∈ eachindex(y)
+        w = muladd(ã,w,y[n])
+        y[n] = w
+    end
+    return w
+end
+
 """
     filt(gf::gammatone_filter, x)
     filt!(y, gf::gammatone_filter, x)
@@ -214,6 +242,10 @@ returns it, allocation free.
 
 The computation runs in the signal's precision: the output element type is `Complex` of
 the element type of `x`, whatever precision the filter is stored at.
+
+The filter starts at rest (all states zero) and the final state is discarded; to carry the
+state across calls — filtering a long signal frame by frame — use the stateful form
+[`filt!(y, gf, x, w)`](@ref filt(::gammatone_filter, ::AbstractVector{T}, ::AbstractVector{Complex{T}}) where T<:AbstractFloat).
 """
 function filt(gf::gammatone_filter, x::AbstractVector{T}) where {T<:AbstractFloat}
     y = Vector{Complex{T}}(undef,length(x))
@@ -224,28 +256,16 @@ function filt!(y::AbstractVector{Complex{T}}, gf::gammatone_filter, x::AbstractV
     length(y) == length(x) || error("Output and input must have the same length")
     ã = convert(Complex{T},gf.coef)
     k = convert(T,gf.norm)
+    z = zero(Complex{T})
     if(gf.order == 4)
-        #Single pass with the four states in registers: the four recursions pipeline
-        #across samples, which a stage-by-stage sweep cannot do
-        w1 = w2 = w3 = w4 = zero(Complex{T})
-        @inbounds for n ∈ eachindex(x,y)
-            w1 = muladd(ã,w1,x[n])
-            w2 = muladd(ã,w2,w1)
-            w3 = muladd(ã,w3,w2)
-            w4 = muladd(ã,w4,w3)
-            y[n] = k*w4
-        end
+        gammatone_cascade4!(y,x,ã,k,z,z,z,z)
     else
         #General order: apply the one-pole recursion order times over the signal in place
         @inbounds for n ∈ eachindex(x,y)
             y[n] = x[n]
         end
         for j ∈ 1:gf.order
-            w = zero(Complex{T})
-            @inbounds for n ∈ eachindex(y)
-                w = muladd(ã,w,y[n])
-                y[n] = w
-            end
+            gammatone_stage!(y,ã,z)
         end
         @inbounds for n ∈ eachindex(y)
             y[n] *= k
@@ -253,6 +273,70 @@ function filt!(y::AbstractVector{Complex{T}}, gf::gammatone_filter, x::AbstractV
     end
     return y
 end
+
+"""
+    filt(gf::gammatone_filter, x, w)
+    filt!(y, gf::gammatone_filter, x, w)
+
+Stateful form of the gammatone [`filt`](@ref filt(::gammatone_filter, ::AbstractVector{T}) where T<:AbstractFloat)
+for frame-by-frame (streaming) filtering. `w` is the filter state: one complex value per
+cascade stage, `w[j]` holding the most recent output of stage `j` (unnormalised — the
+``w_j`` of the recursion ``w_j[n] = w_{j-1}[n] + ãw_j[n-1]``, not scaled by the gain `k`).
+On entry it supplies each stage's initial condition; on return it holds the state after the
+last sample, **updated in place**, ready to be passed to the next call. Start a stream from
+rest with [`filter_state`](@ref)`(gf)` (an all-zero state, for which these methods reproduce
+the stateless form exactly), then feed consecutive frames:
+
+```julia
+w = filter_state(gf)
+for frame ∈ eachcol(frames)
+    filt!(y, gf, frame, w)      #y continues exactly where the previous frame ended
+end
+```
+
+Filtering a signal in consecutive chunks this way reproduces a single call over the whole
+signal bit for bit: the same recursion runs in the same order, and the state's trip
+through `w` between calls is exact. (Against the *stateless* form agreement is to
+floating-point rounding rather than necessarily bitwise — its hard-coded zero start lets
+the compiler contract the arithmetic slightly differently.) The state's element type must
+match the computation precision: `Complex{T}` with `T` the element type of `x`
+(equivalently of `y`), which is what `filter_state(gf, eltype(x))` creates. Both forms are
+allocation free (`filt` allocates only its output).
+
+This is the caller-owned-state counterpart of DSP.jl's stateful `DF2TFilter`: the state
+travels in an explicit vector rather than inside a filter object, so one (immutable)
+`gammatone_filter` can serve any number of concurrent streams.
+"""
+function filt(gf::gammatone_filter, x::AbstractVector{T}, w::AbstractVector{Complex{T}}) where {T<:AbstractFloat}
+    y = Vector{Complex{T}}(undef,length(x))
+    return filt!(y,gf,x,w)
+end
+
+function filt!(y::AbstractVector{Complex{T}}, gf::gammatone_filter, x::AbstractVector{<:Real},
+        w::AbstractVector{Complex{T}}) where {T<:AbstractFloat}
+    length(y) == length(x) || error("Output and input must have the same length")
+    length(w) == gf.order || error("The state must hold one value per stage: expected $(gf.order) elements, got $(length(w))")
+    ã = convert(Complex{T},gf.coef)
+    k = convert(T,gf.norm)
+    if(gf.order == 4)
+        @inbounds w[1],w[2],w[3],w[4] = gammatone_cascade4!(y,x,ã,k,w[1],w[2],w[3],w[4])
+    else
+        #General order: as in the stateless form, but stage j starts from w[j] and leaves
+        #its final state there
+        @inbounds for n ∈ eachindex(x,y)
+            y[n] = x[n]
+        end
+        for j ∈ 1:gf.order
+            @inbounds w[j] = gammatone_stage!(y,ã,w[j])
+        end
+        @inbounds for n ∈ eachindex(y)
+            y[n] *= k
+        end
+    end
+    return y
+end
+
+filter_state(gf::gammatone_filter{T}, ::Type{S} = T) where {T<:AbstractFloat,S<:AbstractFloat} = zeros(Complex{S},gf.order)
 
 
 ## Filterbank
@@ -350,6 +434,41 @@ function filt!(Y::AbstractMatrix{Complex{T}}, fb::gammatone_filterbank, x::Abstr
     end
     return Y
 end
+
+"""
+    filt(fb::gammatone_filterbank, x, W)
+    filt!(Y, fb::gammatone_filterbank, x, W)
+
+Stateful form of the filterbank [`filt`](@ref filt(::gammatone_filterbank, ::AbstractVector{T}) where T<:AbstractFloat)
+for frame-by-frame (streaming) filtering: every channel is run through its stateful
+single-filter method, with `W[i]` — one state vector per channel, as created by
+[`filter_state`](@ref)`(fb)` — supplying channel `i`'s initial state and receiving its
+final one (updated in place). Feeding consecutive frames of a signal reproduces the
+whole-signal subband matrix bit for bit, one block of columns per call:
+
+```julia
+W = filter_state(fb)
+for frame ∈ eachcol(frames)
+    filt!(Y, fb, frame, W)      #every channel continues where the previous frame ended
+end
+```
+"""
+function filt(fb::gammatone_filterbank, x::AbstractVector{T}, W::AbstractVector{<:AbstractVector{Complex{T}}}) where {T<:AbstractFloat}
+    Y = Matrix{Complex{T}}(undef,length(fb.filters),length(x))
+    return filt!(Y,fb,x,W)
+end
+
+function filt!(Y::AbstractMatrix{Complex{T}}, fb::gammatone_filterbank, x::AbstractVector{<:Real},
+        W::AbstractVector{<:AbstractVector{Complex{T}}}) where {T<:AbstractFloat}
+    size(Y) == (length(fb.filters),length(x)) || error("Output must be (number of channels) × (signal length)")
+    length(W) == length(fb.filters) || error("The state must hold one state vector per channel: expected $(length(fb.filters)), got $(length(W))")
+    for i ∈ eachindex(fb.filters)
+        filt!(view(Y,i,:),fb.filters[i],x,W[i])
+    end
+    return Y
+end
+
+filter_state(fb::gammatone_filterbank{T}, ::Type{S} = T) where {T<:AbstractFloat,S<:AbstractFloat} = [filter_state(gf,S) for gf ∈ fb.filters]
 
 """
     filter_resp(fb::gammatone_filterbank, f)

@@ -196,6 +196,105 @@ end
     @test filt(gammatone_filter(16000f0, 1000f0), randn(100)) isa Vector{ComplexF64}
 end
 
+@testset "stateful filtering (frame-by-frame)" begin
+    afs = 16000.0
+    gf = gammatone_filter(afs, 1000.0)
+    gf6 = gammatone_filter(afs, 1000.0; order = 6)
+    xs = randn(2000)
+
+    #filter_state: one complex zero per cascade stage, at the filter's precision by
+    #default and at the signal's when given
+    w = filter_state(gf)
+    @test w isa Vector{ComplexF64}
+    @test length(w) == 4
+    @test all(iszero, w)
+    @test length(filter_state(gf6)) == 6
+    @test filter_state(gf, Float32) isa Vector{ComplexF32}
+
+    #From rest the stateful form computes the stateless result. The comparison is ≈ at
+    #machine tightness rather than == because the two entry points, though they share the
+    #kernels, let the compiler contract the arithmetic around the stateless form's
+    #hard-coded zero start differently (observed at the last bit on the general path)
+    for g in (gf, gf6)
+        @test filt(g, xs, filter_state(g)) ≈ filt(g, xs) rtol = 1e-12
+    end
+
+    #The core streaming guarantee: filtering consecutive chunks through one carried state
+    #reproduces the single-call result bit for bit — the identical recursion runs in the
+    #identical order and the state's trip through w between calls is exact. Uneven chunks
+    #including a single-sample and an empty one exercise the call boundaries, on both the
+    #order-4 register path and the general stage-sweep path
+    for g in (gf, gf6)
+        ywhole = filt(g, xs, filter_state(g))
+        wc = filter_state(g)
+        pieces = [filt(g, xs[r], wc) for r in (1:137, 138:512, 513:513, 514:513, 514:2000)]
+        @test reduce(vcat, pieces) == ywhole
+    end
+
+    #What the state is: after an N-sample impulse block, w[j] is stage j's most recent
+    #(unnormalised) output — for an impulse input, the j-fold cascade's closed-form
+    #impulse response binomial(n+j-1, j-1)ãⁿ at n = N-1
+    N = 60
+    e = zeros(N); e[1] = 1.0
+    for g in (gf, gf6)
+        wi = filter_state(g)
+        filt!(Vector{ComplexF64}(undef, N), g, e, wi)
+        ã = ComplexF64(g.coef)
+        @test wi ≈ [binomial(N - 1 + j - 1, j - 1)*ã^(N - 1) for j in 1:g.order] rtol = 1e-10
+    end
+
+    #A zeroed state is a full reset: refilling the buffer with zeros restarts from rest
+    wr = filter_state(gf)
+    filt(gf, xs, wr)
+    fill!(wr, 0)
+    @test filt(gf, xs[1:100], wr) == filt(gf, xs[1:100], filter_state(gf))
+
+    #The in-place form fills and returns y; both paths allocate nothing after warmup
+    for g in (gf, gf6)
+        yb = Vector{ComplexF64}(undef, 2000)
+        wb = filter_state(g)
+        @test filt!(yb, g, xs, wb) === yb
+        @test (@allocated filt!(yb, g, xs, wb)) == 0
+    end
+
+    #Argument checks: output and state lengths, and a state at the wrong precision is a
+    #MethodError rather than a silent promotion (promotion would strand the carried state
+    #in a converted copy the caller never sees)
+    @test_throws ErrorException filt!(Vector{ComplexF64}(undef, 5), gf, xs, filter_state(gf))
+    @test_throws ErrorException filt(gf, xs, zeros(ComplexF64, 3))
+    @test_throws MethodError filt(gf, randn(Float32, 100), filter_state(gf))
+
+    #Bank form: per-channel states, each row bit-identical to the single-filter stateful
+    #output, the whole-signal matrix reproduced bit for bit from chunks, and size checks
+    fb = gammatone_filterbank(afs, [500.0, 1000.0, 2000.0])
+    W = filter_state(fb)
+    @test W isa Vector{Vector{ComplexF64}}
+    @test length(W) == 3
+    Ywhole = filt(fb, xs, filter_state(fb))
+    @test Ywhole ≈ filt(fb, xs) rtol = 1e-12
+    @test Ywhole[2,:] == filt(fb.filters[2], xs, filter_state(fb.filters[2]))
+    Wc = filter_state(fb)
+    blocks = [filt(fb, xs[r], Wc) for r in (1:400, 401:1100, 1101:2000)]
+    @test reduce(hcat, blocks) == Ywhole
+    Wref = filter_state(fb) #the carried bank states equal those of per-filter whole runs
+    foreach((g, wg) -> filt(g, xs, wg), fb.filters, Wref)
+    @test Wc == Wref
+    @test_throws ErrorException filt(fb, xs, filter_state(fb)[1:2])
+    @test_throws ErrorException filt!(Matrix{ComplexF64}(undef, 2, 2000), fb, xs, filter_state(fb))
+
+    #Float32 stream: types follow the signal, chunking stays exact, and the result agrees
+    #with the stateless Float32 path
+    x32 = randn(Float32, 600)
+    w32 = filter_state(gf, Float32)
+    y32 = filt(gf, x32, w32)
+    @test y32 isa Vector{ComplexF32}
+    w32c = filter_state(gf, Float32)
+    @test reduce(vcat, [filt(gf, x32[r], w32c) for r in (1:250, 251:600)]) == y32
+    @test w32c == w32
+    @test y32 ≈ filt(gf, x32) rtol = 1e-5
+    @test filter_state(gammatone_filterbank(16000f0, [500f0, 1000f0])) isa Vector{Vector{ComplexF32}}
+end
+
 @testset "filterbank" begin
     afs = 16000.0
     fb = gammatone_filterbank(afs)

@@ -598,8 +598,11 @@ glue).
   so the delayed-phase-corrected-summed frequency response is ≈ 0 dB at every centre frequency
   (evaluated from the FFT of the summed compensated IRs, iteratively refined), then
   `x̂[n] = Σ_k g_k Re(ỹ_k[n])`. v1's `gammatone_delay` output is exactly the input this needs.
-- **Streaming/block processing**: the kernel state is γ complex numbers per channel; a stateful
-  processing mode (as in gfb) falls out naturally once there is a use case.
+- **Streaming/block processing** — *built since (v0.4.2)*: stateful `filt`/`filt!` forms take
+  the filter state (`filter_state`: the γ per-stage outputs for a gammatone filter, one such
+  vector per channel for a bank, the DF2T state for a `filter_coefs`) and carry it across
+  calls, updated in place; filtering consecutive chunks reproduces the single-call result bit
+  for bit. `scripts/stateful-filtering-verification.jl` is the visual check.
 - **Decimated envelope output** (`hop_dur` kwarg producing a framed-rate cochleagram) for
   long-signal memory relief.
 - **Real-gammatone convenience** and fractional-delay refinement of the alignment.

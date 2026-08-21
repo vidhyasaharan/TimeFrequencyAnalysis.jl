@@ -113,6 +113,70 @@ end
     @test_throws ErrorException filter_impresp(Fp, 0)
 end
 
+@testset "stateful filtering (carried DF2T state)" begin
+    xs = randn(500)
+
+    #filter_state: the direct form II transposed state — max(nb, na) - 1 elements, real
+    #for a real filter and real signal, complex when either side is complex, empty for a
+    #pure gain (an order-zero filter has nothing to carry)
+    F = filter_coefs([1.0, 0.3], [1.0, -1.2, 0.5])
+    si = filter_state(F)
+    @test si isa Vector{Float64}
+    @test length(si) == 2
+    @test all(iszero, si)
+    @test filter_state(F, ComplexF64) isa Vector{ComplexF64}
+    @test filter_state(filter_coefs(Float32[1], Float32[1, -0.5])) isa Vector{Float32}
+    @test isempty(filter_state(filter_coefs([2.0], [1.0])))
+
+    #From rest the stateful form matches DSP's stateless filt — the identical recursion in
+    #a separately compiled kernel, so the comparison is ≈ at machine tightness — and
+    #chunked filtering through one carried state reproduces a single stateful call bit for
+    #bit (same code, exact state hand-off; single-sample and empty chunks exercise the
+    #boundaries). Exercised over the shapes that pad the recursion differently: nb < na,
+    #nb > na, and a₁ ≠ 1 (run in normalised form, like DSP)
+    for Fx in (filter_coefs([1.0, 0.3], [1.0, -1.2, 0.5]),
+               filter_coefs([2.0, 1.0, 0.5, 0.25], [2.0, -0.8]),
+               filter_coefs([1.0], [0.5, -0.45]))
+        ywhole = filt(Fx, xs, filter_state(Fx))
+        @test ywhole ≈ filt(Fx, xs) rtol = 1e-12
+        sic = filter_state(Fx)
+        @test reduce(vcat, [filt(Fx, xs[r], sic) for r in (1:99, 100:100, 101:100, 101:500)]) == ywhole
+    end
+
+    #The state layout is DSP's DF2TFilter convention exactly: a stream started here can be
+    #handed mid-signal to a DF2TFilter built on the same coefficients and same state
+    #vector, and the spliced output is the whole-signal result
+    si2 = filter_state(F)
+    yhead = filt(F, xs[1:200], si2)
+    df = DSP.DF2TFilter(DSP.PolynomialRatio(F.num, F.den), si2)
+    ytail = DSP.filt(df, xs[201:500])
+    @test vcat(yhead, ytail) ≈ filt(F, xs) rtol = 1e-12
+
+    #Complex coefficients: the expanded gammatone polynomial streamed chunk by chunk lands
+    #on the gammatone kernel's own output (the two paths agree at 1e-8 statelessly too —
+    #see the filtering kernel testset in gammatone_tests.jl)
+    gfc = gammatone_filter(16000.0, 1000.0)
+    Fc = filter_coefs(gfc)
+    sic = filter_state(Fc)
+    @test sic isa Vector{ComplexF64}
+    @test length(sic) == 4
+    @test reduce(vcat, [filt(Fc, xs[r], sic) for r in (1:250, 251:500)]) ≈ filt(gfc, xs) rtol = 1e-8
+
+    #Pure gain: filtering works with the empty state
+    @test filt(filter_coefs([3.0], [2.0]), xs, Float64[]) ≈ 1.5 .* xs
+
+    #The in-place form fills and returns y, allocation free for an a₁ = 1 filter
+    yb = zeros(500)
+    sib = filter_state(F)
+    @test filt!(yb, F, xs, sib) === yb
+    @test (@allocated filt!(yb, F, xs, sib)) == 0
+
+    #Argument checks: state and output lengths, and a zero leading denominator coefficient
+    @test_throws ErrorException filt(F, xs, zeros(5))
+    @test_throws ErrorException filt!(zeros(499), F, xs, filter_state(F))
+    @test_throws ErrorException filt(filter_coefs([1.0], [0.0, 1.0]), xs, zeros(1))
+end
+
 @testset "z⁻¹ phase convention" begin
     afs = 8000.0
 

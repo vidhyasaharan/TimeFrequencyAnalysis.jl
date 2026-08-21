@@ -2,6 +2,7 @@ using TimeFrequencyAnalysis
 using Test
 using LinearAlgebra
 using Random
+import DSP #for the stateful-filtering interop checks (filters_tests.jl)
 
 #Deterministic broadband test signal: two tones in noise, 1 second at 8 kHz
 Random.seed!(2026)

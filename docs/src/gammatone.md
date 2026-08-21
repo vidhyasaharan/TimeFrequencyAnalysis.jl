@@ -38,7 +38,12 @@ spaced on the ERB-rate scale with one channel pinned exactly at a base frequency
 At the array level, signals are filtered with `filt` — DSP.jl's filtering verb, which the
 package extends with methods for its filter and filterbank types (one complex subband per
 row for a bank; `filt!` is the in-place form; the computation runs in the signal's
-precision). On top of that, [`gammatone_analysis`](@ref) returns the complex subbands of a
+precision). For frame-by-frame (streaming) processing, both have **stateful forms** that
+take the filter state — one complex value per cascade stage, created at rest by
+[`filter_state`](@ref) — and carry it across calls, updated in place: each call continues
+exactly where the previous one ended, so consecutive blocks reproduce the whole-signal
+subbands bit for bit with nothing recomputed and nothing allocated.
+On top of that, [`gammatone_analysis`](@ref) returns the complex subbands of a
 signal as a [`timefreq`](@ref) with **per-sample time resolution** (no framing), and
 [`gammatone_cochleagram`](@ref) returns their envelope, floored like [`specgram`](@ref) so
 dB scaling is always well defined. Both follow the package's [`comp()`](@ref comp)
@@ -91,8 +96,10 @@ Ya = gammatone_analysis(s, fb; align = 0.004)  #aligned complex subbands
 gammatone_filter
 gammatone_impulse_response
 filt(::gammatone_filter, ::AbstractVector{T}) where T<:AbstractFloat
+filt(::gammatone_filter, ::AbstractVector{T}, ::AbstractVector{Complex{T}}) where T<:AbstractFloat
 gammatone_filterbank
 filt(::gammatone_filterbank, ::AbstractVector{T}) where T<:AbstractFloat
+filt(::gammatone_filterbank, ::AbstractVector{T}, ::AbstractVector{<:AbstractVector{Complex{T}}}) where T<:AbstractFloat
 gammatone_analysis
 gammatone_cochleagram
 group_delay

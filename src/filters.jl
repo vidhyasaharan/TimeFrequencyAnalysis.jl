@@ -192,6 +192,94 @@ filt!(y::AbstractVector, F::filter_coefs, x::AbstractVector) = filt!(y,F.num,F.d
 
 
 """
+    filter_state(F::filter_coefs [, S])
+    filter_state(gf::gammatone_filter [, S])
+    filter_state(fb::gammatone_filterbank [, S])
+
+A fresh all-zero (at rest) state for the given filter, as the stateful
+[`filt`](@ref filt(::filter_coefs, ::AbstractVector, ::AbstractVector)) and `filt!` methods
+expect it: pass it to the first call of a frame-by-frame run and the filtering carries it
+forward from there. `S` is the element type of the signal to be filtered and defaults to
+the filter's own precision; the state element type follows from it (and from the filter's
+coefficients), matching what the stateful filtering methods compute with.
+
+What the state is depends on the filter type. For a [`filter_coefs`](@ref) it is the
+direct form II transposed state — `max(length(num), length(den)) - 1` partial sums, real
+for a real filter and real signal, complex if either side is complex. For a
+[`gammatone_filter`](@ref) it is one complex value per cascade stage (`order` of them),
+`w[j]` being the most recent output of stage `j`. For a [`gammatone_filterbank`](@ref) it
+is a vector of per-channel gammatone states.
+"""
+function filter_state(F::filter_coefs{T}, ::Type{S} = T) where {T<:AbstractFloat,S<:Number}
+    return zeros(promote_type(eltype(F.num),S),max(length(F.num),length(F.den))-1)
+end
+
+"""
+    filt(F::filter_coefs, x, si)
+
+Stateful form of [`filt`](@ref filt(::filter_coefs, ::AbstractVector)) for frame-by-frame
+(streaming) filtering: the state `si` supplies the filter's initial conditions instead of
+starting at rest, and holds the state after the last sample on return (**updated in
+place**), ready for the next call. Start a stream with [`filter_state`](@ref)`(F)`:
+filtering a signal in consecutive chunks then reproduces a single stateful call over the
+whole signal bit for bit, and matches the stateless form (DSP.jl's kernel, the identical
+recursion) to floating-point rounding.
+"""
+function filt(F::filter_coefs, x::AbstractVector, si::AbstractVector)
+    y = Vector{promote_type(eltype(F.num),eltype(x))}(undef,length(x))
+    return filt!(y,F,x,si)
+end
+
+"""
+    filt!(y, F::filter_coefs, x, si)
+
+In-place form of the stateful [`filt`](@ref filt(::filter_coefs, ::AbstractVector, ::AbstractVector)):
+fill `y` with `x` filtered by `F` from the initial conditions in `si`, leaving the final
+state in `si`, and return `y`. Allocation free whenever `F.den[1] == 1`.
+
+The state layout and its meaning follow DSP.jl's stateful `DF2TFilter` exactly — the
+direct form II transposed recursion run in `den[1]`-normalised form with
+`max(length(num), length(den)) - 1` state elements — so a state vector started here can be
+handed to a `DSP.DF2TFilter` carrying the same coefficients, and vice versa.
+"""
+function filt!(y::AbstractVector, F::filter_coefs, x::AbstractVector, si::AbstractVector)
+    length(y) == length(x) || error("Output and input must have the same length")
+    b = F.num
+    a = F.den
+    silen = max(length(b),length(a)) - 1
+    length(si) == silen || error("The state must have max(length(num), length(den)) - 1 = $silen elements, got $(length(si))")
+    iszero(a[1]) && error("The leading denominator coefficient must be nonzero")
+    if(!isone(a[1]))
+        #Run in a₁-normalised form, like DSP.jl, so the state means the same thing there
+        b = b./a[1]
+        a = a./a[1]
+    end
+    if(silen == 0) #order-zero filter: a pure gain, no state to carry
+        @inbounds for n ∈ eachindex(x,y)
+            y[n] = b[1]*x[n]
+        end
+        return y
+    end
+    nb = length(b)
+    na = length(a)
+    @inbounds for n ∈ eachindex(x,y)
+        xn = x[n]
+        yn = muladd(b[1],xn,si[1])
+        y[n] = yn
+        for j ∈ 1:silen-1
+            bj = (j < nb) ? b[j+1] : zero(eltype(b))
+            aj = (j < na) ? a[j+1] : zero(eltype(a))
+            si[j] = muladd(-aj,yn,muladd(bj,xn,si[j+1]))
+        end
+        bl = (silen < nb) ? b[silen+1] : zero(eltype(b))
+        al = (silen < na) ? a[silen+1] : zero(eltype(a))
+        si[silen] = muladd(-al,yn,bl*xn)
+    end
+    return y
+end
+
+
+"""
     filter_impresp(F, n)
 
 Impulse response of the filter `F`, measured by running a unit impulse through it for `n`
